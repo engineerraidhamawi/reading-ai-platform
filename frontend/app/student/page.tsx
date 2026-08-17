@@ -17,11 +17,12 @@ export default function StudentReadingPage() {
 
   const [q1, setQ1] = useState('')
   const [q2, setQ2] = useState('')
+  const [wordAnalysis, setWordAnalysis] = useState<any[]>([])
 
   useEffect(() => {
     const token = localStorage.getItem('token')
     if (token) {
-      axios.get('https://reading-ai-platform.onrender.com/api/passages', { headers: { Authorization: `Bearer ${token}` } })
+      axios.get('https://reading-ai-backend.onrender.com/api/passages', { headers: { Authorization: `Bearer ${token}` } })
         .then(res => setPassages(res.data))
         .catch(err => console.error(err))
     }
@@ -59,7 +60,7 @@ export default function StudentReadingPage() {
     setStatus('جارٍ الإرسال والتقييم...')
     
     let correct = 0
-    if (q1 === 'الحديقة') correct++ // Mock quiz answers based on default passage
+    if (q1 === 'الحديقة') correct++
     if (q2 === 'أحمد') correct++
     const score = `${correct}/2`
 
@@ -69,14 +70,25 @@ export default function StudentReadingPage() {
     formData.append('comprehension_score', score)
 
     try {
-      const res = await axios.post('https://reading-ai-platform.onrender.com/api/sessions/upload', formData, {
+      const res = await axios.post('https://reading-ai-backend.onrender.com/api/sessions/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data', 'Authorization': `Bearer ${token}` }
       })
       setStatus(`تم التقييم! الدقة: ${res.data.accuracy}%`)
+      setWordAnalysis(res.data.word_analysis) // Save visual analysis
       setPhase('done')
     } catch (err) {
       setStatus('حدث خطأ أثناء الإرسال.')
       setIsSubmitting(false)
+    }
+  }
+
+  // NEW: Text-to-Speech Function
+  const speakWord = (word: string) => {
+    if ('speechSynthesis' in window) {
+      const utterance = new SpeechSynthesisUtterance(word)
+      utterance.lang = 'ar-SA' // Arabic
+      utterance.rate = 0.8 // Slightly slower for clarity
+      window.speechSynthesis.speak(utterance)
     }
   }
 
@@ -145,10 +157,29 @@ export default function StudentReadingPage() {
         )}
 
         {phase === 'done' && (
-          <div className="text-center py-12">
+          <div className="text-center py-8">
             <div className="text-6xl mb-4">🎉</div>
             <h2 className="text-2xl font-bold text-purple-700 mb-4">أحسنت! لقد أكملت الحصة</h2>
-            <p className="text-pink-600 font-semibold mb-6">{status}</p>
+            <p className="text-pink-600 font-semibold mb-8">{status}</p>
+            
+            <div className="bg-purple-50/60 border border-purple-100 p-6 rounded-2xl mb-6 text-right" dir="rtl">
+              <h3 className="font-bold text-purple-900 mb-3 text-center">مراجعة الكلمات:</h3>
+              <div className="flex flex-wrap gap-2 justify-center">
+                {wordAnalysis.map((item, idx) => (
+                  <button 
+                    key={idx} 
+                    onClick={() => speakWord(item.word)}
+                    className={`px-3 py-1 rounded-lg text-lg font-medium transition hover:scale-105 ${
+                      item.status === 'correct' ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' :
+                      'bg-red-100 text-red-700 hover:bg-red-200'
+                    }`}
+                  >
+                    {item.word} 🔊
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-gray-500 mt-4 text-center">اضغط على الكلمة للاستماع إلى نطقها الصحيح</p>
+            </div>
           </div>
         )}
       </div>

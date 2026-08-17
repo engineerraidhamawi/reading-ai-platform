@@ -141,18 +141,38 @@ async def upload_audio(audio: UploadFile = File(...), passage: str = Form(...), 
     original_words = normalize_arabic(passage).split()
     spoken_words = normalize_arabic(raw_transcript).split()
     word_matcher = difflib.SequenceMatcher(None, original_words, spoken_words)
-    errors = [original_words[i1:i2] for tag, i1, i2, j1, j2 in word_matcher.get_opcodes() if tag in ['delete', 'replace']]
+    
+    errors = []
+    word_analysis = [] # NEW: Array for frontend visual feedback
+    
+    for tag, i1, i2, j1, j2 in word_matcher.get_opcodes():
+        if tag == 'equal':
+            for word in original_words[i1:i2]:
+                word_analysis.append({"word": word, "status": "correct"})
+        elif tag == 'delete':
+            for word in original_words[i1:i2]:
+                errors.append(word)
+                word_analysis.append({"word": word, "status": "missing"})
+        elif tag == 'replace':
+            for word in original_words[i1:i2]:
+                errors.append(word)
+                word_analysis.append({"word": word, "status": "incorrect"})
     
     new_session = ResearchSession(
         session_id=f"SES-{datetime.datetime.now().timestamp()}", student_id=current_user.id, doctor_id=current_user.doctor_id,
         age_range="8-10", grade="4", passage_id="PASS", passage_level="متوسط", audio_file_id=file_location,
-        asr_transcript=raw_transcript, error_tags=";".join(sum(errors, [])) or "لا توجد أخطاء",
+        asr_transcript=raw_transcript, error_tags=";".join(errors) or "لا توجد أخطاء",
         wpm=int(len(spoken_words) / 0.5), accuracy_percent=accuracy, comprehension_score=comprehension_score,
         duration_seconds=30, consent_given=True
     )
     db.add(new_session)
     db.commit()
-    return {"accuracy": accuracy, "transcript": raw_transcript}
+    
+    return {
+        "accuracy": accuracy, 
+        "transcript": raw_transcript,
+        "word_analysis": word_analysis # Sending this to frontend
+    }
 
 @app.get("/api/sessions/export")
 def export_sessions(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
