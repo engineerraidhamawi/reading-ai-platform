@@ -1,15 +1,21 @@
+import os
 from sqlalchemy import create_engine, Column, String, Integer, Float, Boolean, DateTime, Text, ForeignKey
 from sqlalchemy.orm import declarative_base, sessionmaker
 import datetime
 from passlib.context import CryptContext
 
-DATABASE_URL = "sqlite:///./reading_platform.db"
+# Read the URL from Render's environment variables
+DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./reading_platform.db")
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+# This part is CRITICAL so PostgreSQL doesn't crash
+if DATABASE_URL.startswith("sqlite"):
+    engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+else:
+    engine = create_engine(DATABASE_URL)
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
