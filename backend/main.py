@@ -22,11 +22,10 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], 
-    allow_credentials=True,
+    allow_credentials=True,  # <-- THIS IS THE PROBLEM
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 SECRET_KEY = "YOUR_SUPER_SECRET_KEY_12345_KEEP_IT_SAFE"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
