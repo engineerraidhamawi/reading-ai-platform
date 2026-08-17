@@ -22,19 +22,18 @@ export default function StudentReadingPage() {
   useEffect(() => {
     const token = localStorage.getItem('token')
     if (token) {
-      // FIXED URL HERE
       axios.get('https://reading-ai-platform.onrender.com/api/passages', { headers: { Authorization: `Bearer ${token}` } })
         .then(res => setPassages(res.data))
         .catch(err => console.error(err))
     }
   }, [])
+
   const startRecording = () => {
     navigator.mediaDevices.getUserMedia({ audio: true })
       .then(stream => {
-        // Explicitly set the MIME type to prevent empty files
         let options = { mimeType: 'audio/webm' };
         if (!MediaRecorder.isTypeSupported('audio/webm')) {
-          options = { mimeType: 'audio/mp4' }; // Fallback for Safari
+          options = { mimeType: 'audio/mp4' };
         }
         
         const mediaRecorder = new MediaRecorder(stream, options)
@@ -48,18 +47,22 @@ export default function StudentReadingPage() {
         mediaRecorder.onstop = () => {
           const blob = new Blob(chunksRef.current, { type: mediaRecorder.mimeType })
           setAudioBlob(blob)
-          setStatus('Recording stopped. Click "Next" to proceed to the quiz.')
-          // Stop the microphone
+          setStatus('تم التسجيل. اضغط "التالي" للانتقال إلى الاختبار')
           stream.getTracks().forEach(track => track.stop())
         }
 
-        // Start recording and request data every 1 second
         mediaRecorder.start(1000)
         setIsRecording(true)
-        setStatus('Recording... Please read the text clearly')
+        setStatus('جارٍ التسجيل... اقرأ النص بصوت واضح')
       })
-      .catch(() => setStatus('Error: Cannot access microphone'))
+      .catch(() => setStatus('خطأ: لا يمكن الوصول إلى الميكروفون'))
   }
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current) {
+      mediaRecorderRef.current.stop()
+      setIsRecording(false)
+    }
   }
 
   const sendForEvaluation = async () => {
@@ -79,7 +82,6 @@ export default function StudentReadingPage() {
     formData.append('comprehension_score', score)
 
     try {
-      // FIXED URL HERE
       const res = await axios.post('https://reading-ai-platform.onrender.com/api/sessions/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data', 'Authorization': `Bearer ${token}` }
       })
@@ -92,7 +94,6 @@ export default function StudentReadingPage() {
     }
   }
 
-  // Text-to-Speech Function
   const speakWord = (word: string) => {
     if ('speechSynthesis' in window) {
       const utterance = new SpeechSynthesisUtterance(word)
