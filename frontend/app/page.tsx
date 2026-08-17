@@ -170,10 +170,9 @@ export default function Dashboard() {
                     <td className="py-3 px-3 text-purple-500 max-w-[250px] text-xs leading-relaxed">
                       <div className="bg-white/40 rounded-lg p-2 border border-white/60">
                         <p className="italic mb-2">"{session.asr_transcript}"</p>
-                        {session.audio_file_id && (
-                          <audio controls className="w-full h-8">
-                            <source src={`https://reading-ai-platform.onrender.com/api/audio/${session.audio_file_id}?t=${localStorage.getItem('token')}`} type="audio/webm" />
-                            متصفحك لا يدعم تشغيل الصوت.
+                          {session.audio_file_id && (
+                          <audio controls src={session.audio_file_id} className="w-full h-8 mt-2">
+                            Your browser does not support the audio element.
                           </audio>
                         )}
                       </div>
