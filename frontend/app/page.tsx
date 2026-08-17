@@ -15,7 +15,7 @@ export default function Dashboard() {
     if (!token) return window.location.href = '/login'
     setLoading(true)
     try {
-      const res = await axios.get('https://reading-ai-backend.onrender.com/api/sessions', { 
+      const res = await axios.get('https://reading-ai-platform.onrender.com/api/sessions', { 
         headers: { Authorization: `Bearer ${token}` } 
       })
       setSessions(res.data)
@@ -35,7 +35,7 @@ export default function Dashboard() {
   const handleExport = async () => {
     const token = localStorage.getItem('token')
     try {
-      const res = await axios.get('https://reading-ai-backend.onrender.com/api/sessions/export', {
+      const res = await axios.get('https://reading-ai-platform.onrender.com/api/sessions/export', {
         headers: { Authorization: `Bearer ${token}` },
         responseType: 'blob'
       })
@@ -59,7 +59,7 @@ export default function Dashboard() {
       params.append('text', newPassage)
       params.append('level', 'متوسط')
 
-      await axios.post('https://reading-ai-backend.onrender.com/api/passages', params, { 
+      await axios.post('https://reading-ai-platform.onrender.com/api/passages', params, { 
         headers: { 
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/x-www-form-urlencoded'
