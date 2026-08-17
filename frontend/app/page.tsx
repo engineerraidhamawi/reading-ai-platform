@@ -51,24 +51,29 @@ export default function Dashboard() {
     }
   }
 
-   const handleAddPassage = async (e: React.FormEvent) => {
+  const handleAddPassage = async (e: React.FormEvent) => {
     e.preventDefault()
     const token = localStorage.getItem('token')
     try {
-      const formData = new FormData()
-      formData.append('text', newPassage)
-      formData.append('level', 'متوسط')
+      const params = new URLSearchParams()
+      params.append('text', newPassage)
+      params.append('level', 'متوسط')
 
-      await axios.post('https://reading-ai-backend.onrender.com/api/passages', formData, { 
-        headers: { Authorization: `Bearer ${token}` }
+      await axios.post('https://reading-ai-backend.onrender.com/api/passages', params, { 
+        headers: { 
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/x-www-form-urlencoded'
+        }
       })
       setNewPassage('')
       setShowPassageForm(false)
-      alert('Passage added successfully!')
-    } catch (err) {
-      alert('Failed to add passage')
+      alert('تم إضافة النص بنجاح!')
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.detail?.[0]?.msg || err.response?.data?.detail || 'Failed to add passage'
+      alert(errorMessage)
     }
   }
+
   const chartData = sessions.map((s: any) => ({ name: s.student_username, accuracy: s.accuracy_percent, wpm: s.wpm }))
 
   return (
