@@ -112,9 +112,19 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
 
 # --- Passage Routes ---
 @app.post("/api/passages")
-def create_passage(text: str = Form(...), level: str = Form("متوسط"), current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def create_passage(
+    text: str = Form(...), 
+    level: str = Form("متوسط"),
+    question1: str = Form(...), option1a: str = Form(...), option1b: str = Form(...), option1c: str = Form(...), answer1: str = Form(...),
+    question2: str = Form(...), option2a: str = Form(...), option2b: str = Form(...), option2c: str = Form(...), answer2: str = Form(...),
+    current_user: User = Depends(get_current_user), db: Session = Depends(get_db)
+):
     if current_user.role not in ["doctor", "admin"]: raise HTTPException(status_code=403, detail="Doctors only")
-    passage = Passage(text=text, level=level, created_by=current_user.id)
+    passage = Passage(
+        text=text, level=level, created_by=current_user.id,
+        question1=question1, option1a=option1a, option1b=option1b, option1c=option1c, answer1=answer1,
+        question2=question2, option2a=option2a, option2b=option2b, option2c=option2c, answer2=answer2
+    )
     db.add(passage)
     db.commit()
     db.refresh(passage)

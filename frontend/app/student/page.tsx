@@ -6,7 +6,7 @@ import axios from 'axios'
 export default function StudentReadingPage() {
   const [phase, setPhase] = useState<'select' | 'reading' | 'quiz' | 'done'>('select')
   const [passages, setPassages] = useState([])
-  const [selectedPassage, setSelectedPassage] = useState('')
+  const [selectedPassage, setSelectedPassage] = useState<any>(null)
   
   const [isRecording, setIsRecording] = useState(false)
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null)
@@ -15,8 +15,8 @@ export default function StudentReadingPage() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
 
-  const [q1, setQ1] = useState('')
-  const [q2, setQ2] = useState('')
+  const [ans1, setAns1] = useState('')
+  const [ans2, setAns2] = useState('')
   const [wordAnalysis, setWordAnalysis] = useState<any[]>([])
 
   useEffect(() => {
@@ -32,25 +32,17 @@ export default function StudentReadingPage() {
     navigator.mediaDevices.getUserMedia({ audio: true })
       .then(stream => {
         let options = { mimeType: 'audio/webm' };
-        if (!MediaRecorder.isTypeSupported('audio/webm')) {
-          options = { mimeType: 'audio/mp4' };
-        }
-        
+        if (!MediaRecorder.isTypeSupported('audio/webm')) { options = { mimeType: 'audio/mp4' }; }
         const mediaRecorder = new MediaRecorder(stream, options)
         mediaRecorderRef.current = mediaRecorder
         chunksRef.current = []
-        
-        mediaRecorder.ondataavailable = (e) => { 
-          if (e.data.size > 0) chunksRef.current.push(e.data) 
-        }
-
+        mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data) }
         mediaRecorder.onstop = () => {
           const blob = new Blob(chunksRef.current, { type: mediaRecorder.mimeType })
           setAudioBlob(blob)
           setStatus('تم التسجيل. اضغط "التالي" للانتقال إلى الاختبار')
           stream.getTracks().forEach(track => track.stop())
         }
-
         mediaRecorder.start(1000)
         setIsRecording(true)
         setStatus('جارٍ التسجيل... اقرأ النص بصوت واضح')
@@ -66,19 +58,19 @@ export default function StudentReadingPage() {
   }
 
   const sendForEvaluation = async () => {
-    if (!audioBlob || isSubmitting) return
+    if (!audioBlob || isSubmitting || !selectedPassage) return
     const token = localStorage.getItem('token')
     setIsSubmitting(true)
     setStatus('جارٍ الإرسال والتقييم...')
     
     let correct = 0
-    if (q1 === 'الحديقة') correct++
-    if (q2 === 'أحمد') correct++
+    if (ans1 === selectedPassage.answer1) correct++
+    if (ans2 === selectedPassage.answer2) correct++
     const score = `${correct}/2`
 
     const formData = new FormData()
     formData.append('audio', audioBlob, 'recording.webm')
-    formData.append('passage', selectedPassage)
+    formData.append('passage', selectedPassage.text)
     formData.append('comprehension_score', score)
 
     try {
@@ -112,7 +104,7 @@ export default function StudentReadingPage() {
           <div className="flex flex-col gap-4">
             <h2 className="text-xl font-bold text-center text-purple-900">اختر النص للقراءة</h2>
             {passages.map((p: any) => (
-              <button key={p.id} onClick={() => { setSelectedPassage(p.text); setPhase('reading') }} className="bg-white/70 hover:bg-white border border-purple-100 p-4 rounded-2xl text-right transition">
+              <button key={p.id} onClick={() => { setSelectedPassage(p); setPhase('reading') }} className="bg-white/70 hover:bg-white border border-purple-100 p-4 rounded-2xl text-right transition">
                 <span className="text-xs text-purple-500 block">{p.level}</span>
                 <span className="text-purple-800 font-medium">{p.text.substring(0, 50)}...</span>
               </button>
@@ -121,10 +113,10 @@ export default function StudentReadingPage() {
           </div>
         )}
 
-        {phase === 'reading' && (
+        {phase === 'reading' && selectedPassage && (
           <>
             <div className="bg-purple-50/60 border border-purple-100 p-6 rounded-2xl mb-8 text-center">
-              <p className="text-xl leading-loose text-purple-900 font-medium">{selectedPassage}</p>
+              <p className="text-xl leading-loose text-purple-900 font-medium">{selectedPassage.text}</p>
             </div>
             <div className="flex flex-col items-center gap-4">
               <p className="text-purple-700 font-bold">{status}</p>
@@ -140,24 +132,24 @@ export default function StudentReadingPage() {
           </>
         )}
 
-        {phase === 'quiz' && (
+        {phase === 'quiz' && selectedPassage && (
           <>
             <h2 className="text-xl font-bold mb-6 text-center text-purple-900">اختبار الفهم القرائي</h2>
             <div className="flex flex-col gap-8">
               <div>
-                <p className="font-bold mb-3 text-purple-800">1. أين ذهب أحمد؟</p>
+                <p className="font-bold mb-3 text-purple-800">1. {selectedPassage.question1}</p>
                 <div className="flex gap-4 flex-wrap">
-                  <button onClick={() => setQ1('المدرسة')} className={`px-5 py-2 rounded-xl border ${q1==='المدرسة' ? 'bg-purple-600 text-white' : 'bg-white/50'}`}>المدرسة</button>
-                  <button onClick={() => setQ1('الحديقة')} className={`px-5 py-2 rounded-xl border ${q1==='الحديقة' ? 'bg-purple-600 text-white' : 'bg-white/50'}`}>الحديقة</button>
-                  <button onClick={() => setQ1('المنزل')} className={`px-5 py-2 rounded-xl border ${q1==='المنزل' ? 'bg-purple-600 text-white' : 'bg-white/50'}`}>المنزل</button>
+                  <button onClick={() => setAns1(selectedPassage.option1a)} className={`px-5 py-2 rounded-xl border ${ans1===selectedPassage.option1a ? 'bg-purple-600 text-white' : 'bg-white/50'}`}>{selectedPassage.option1a}</button>
+                  <button onClick={() => setAns1(selectedPassage.option1b)} className={`px-5 py-2 rounded-xl border ${ans1===selectedPassage.option1b ? 'bg-purple-600 text-white' : 'bg-white/50'}`}>{selectedPassage.option1b}</button>
+                  <button onClick={() => setAns1(selectedPassage.option1c)} className={`px-5 py-2 rounded-xl border ${ans1===selectedPassage.option1c ? 'bg-purple-600 text-white' : 'bg-white/50'}`}>{selectedPassage.option1c}</button>
                 </div>
               </div>
               <div>
-                <p className="font-bold mb-3 text-purple-800">2. من هو بطل القصة؟</p>
+                <p className="font-bold mb-3 text-purple-800">2. {selectedPassage.question2}</p>
                 <div className="flex gap-4 flex-wrap">
-                  <button onClick={() => setQ2('أحمد')} className={`px-5 py-2 rounded-xl border ${q2==='أحمد' ? 'bg-purple-600 text-white' : 'bg-white/50'}`}>أحمد</button>
-                  <button onClick={() => setQ2('خالد')} className={`px-5 py-2 rounded-xl border ${q2==='خالد' ? 'bg-purple-600 text-white' : 'bg-white/50'}`}>خالد</button>
-                  <button onClick={() => setQ2('علي')} className={`px-5 py-2 rounded-xl border ${q2==='علي' ? 'bg-purple-600 text-white' : 'bg-white/50'}`}>علي</button>
+                  <button onClick={() => setAns2(selectedPassage.option2a)} className={`px-5 py-2 rounded-xl border ${ans2===selectedPassage.option2a ? 'bg-purple-600 text-white' : 'bg-white/50'}`}>{selectedPassage.option2a}</button>
+                  <button onClick={() => setAns2(selectedPassage.option2b)} className={`px-5 py-2 rounded-xl border ${ans2===selectedPassage.option2b ? 'bg-purple-600 text-white' : 'bg-white/50'}`}>{selectedPassage.option2b}</button>
+                  <button onClick={() => setAns2(selectedPassage.option2c)} className={`px-5 py-2 rounded-xl border ${ans2===selectedPassage.option2c ? 'bg-purple-600 text-white' : 'bg-white/50'}`}>{selectedPassage.option2c}</button>
                 </div>
               </div>
               <button onClick={sendForEvaluation} disabled={isSubmitting} className="bg-gradient-to-r from-emerald-500 to-cyan-500 text-white px-8 py-3 rounded-2xl font-bold shadow-lg hover:scale-105 transition disabled:opacity-50">
@@ -172,21 +164,11 @@ export default function StudentReadingPage() {
             <div className="text-6xl mb-4">🎉</div>
             <h2 className="text-2xl font-bold text-purple-700 mb-4">أحسنت! لقد أكملت الحصة</h2>
             <p className="text-pink-600 font-semibold mb-8">{status}</p>
-            
             <div className="bg-purple-50/60 border border-purple-100 p-6 rounded-2xl mb-6 text-right" dir="rtl">
               <h3 className="font-bold text-purple-900 mb-3 text-center">مراجعة الكلمات:</h3>
               <div className="flex flex-wrap gap-2 justify-center">
                 {wordAnalysis.map((item, idx) => (
-                  <button 
-                    key={idx} 
-                    onClick={() => speakWord(item.word)}
-                    className={`px-3 py-1 rounded-lg text-lg font-medium transition hover:scale-105 ${
-                      item.status === 'correct' ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' :
-                      'bg-red-100 text-red-700 hover:bg-red-200'
-                    }`}
-                  >
-                    {item.word} 🔊
-                  </button>
+                  <button key={idx} onClick={() => speakWord(item.word)} className={`px-3 py-1 rounded-lg text-lg font-medium transition hover:scale-105 ${item.status === 'correct' ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-red-100 text-red-700 hover:bg-red-200'}`}>{item.word} 🔊</button>
                 ))}
               </div>
               <p className="text-xs text-gray-500 mt-4 text-center">اضغط على الكلمة للاستماع إلى نطقها الصحيح</p>
