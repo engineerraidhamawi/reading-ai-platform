@@ -28,30 +28,38 @@ export default function StudentReadingPage() {
         .catch(err => console.error(err))
     }
   }, [])
-
   const startRecording = () => {
     navigator.mediaDevices.getUserMedia({ audio: true })
       .then(stream => {
-        const mediaRecorder = new MediaRecorder(stream)
+        // Explicitly set the MIME type to prevent empty files
+        let options = { mimeType: 'audio/webm' };
+        if (!MediaRecorder.isTypeSupported('audio/webm')) {
+          options = { mimeType: 'audio/mp4' }; // Fallback for Safari
+        }
+        
+        const mediaRecorder = new MediaRecorder(stream, options)
         mediaRecorderRef.current = mediaRecorder
         chunksRef.current = []
-        mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data) }
-        mediaRecorder.onstop = () => {
-          setAudioBlob(new Blob(chunksRef.current, { type: 'audio/webm' }))
-          setStatus('تم التسجيل. اضغط "التالي" للانتقال إلى الاختبار')
+        
+        mediaRecorder.ondataavailable = (e) => { 
+          if (e.data.size > 0) chunksRef.current.push(e.data) 
         }
-        mediaRecorder.start()
-        setIsRecording(true)
-        setStatus('جارٍ التسجيل... اقرأ النص بصوت واضح')
-      })
-      .catch(() => setStatus('خطأ: لا يمكن الوصول إلى الميكروفون'))
-  }
 
-  const stopRecording = () => {
-    if (mediaRecorderRef.current) {
-      mediaRecorderRef.current.stop()
-      setIsRecording(false)
-    }
+        mediaRecorder.onstop = () => {
+          const blob = new Blob(chunksRef.current, { type: mediaRecorder.mimeType })
+          setAudioBlob(blob)
+          setStatus('Recording stopped. Click "Next" to proceed to the quiz.')
+          // Stop the microphone
+          stream.getTracks().forEach(track => track.stop())
+        }
+
+        // Start recording and request data every 1 second
+        mediaRecorder.start(1000)
+        setIsRecording(true)
+        setStatus('Recording... Please read the text clearly')
+      })
+      .catch(() => setStatus('Error: Cannot access microphone'))
+  }
   }
 
   const sendForEvaluation = async () => {
