@@ -167,7 +167,17 @@ export default function Dashboard() {
                     <td className="py-3 px-3 text-purple-600 font-bold text-sm">{session.wpm} <span className="text-xs text-purple-300">WPM</span></td>
                     <td className="py-3 px-3"><span className="px-2 py-1 rounded-full text-xs font-bold bg-purple-100 text-purple-700">{session.comprehension_score}</span></td>
                     <td className="py-3 px-3 text-red-500 max-w-[150px] text-xs leading-relaxed">{session.error_tags}</td>
-                    <td className="py-3 px-3 text-purple-500 max-w-[200px] text-xs italic leading-relaxed bg-white/40 rounded-lg p-2 border border-white/60">"{session.asr_transcript}"</td>
+                    <td className="py-3 px-3 text-purple-500 max-w-[250px] text-xs leading-relaxed">
+                      <div className="bg-white/40 rounded-lg p-2 border border-white/60">
+                        <p className="italic mb-2">"{session.asr_transcript}"</p>
+                        {session.audio_file_id && (
+                          <audio controls className="w-full h-8">
+                            <source src={`https://reading-ai-platform.onrender.com/api/audio/${session.audio_file_id}?t=${localStorage.getItem('token')}`} type="audio/webm" />
+                            متصفحك لا يدعم تشغيل الصوت.
+                          </audio>
+                        )}
+                      </div>
+                    </td>
                   </tr>
                 ))
               )}

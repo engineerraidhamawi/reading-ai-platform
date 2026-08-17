@@ -1,7 +1,7 @@
-from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException, status
+from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException, status, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
@@ -126,7 +126,6 @@ async def upload_audio(audio: UploadFile = File(...), passage: str = Form(...), 
     file_location = f"audio_{datetime.datetime.now().timestamp()}.webm"
     with open(file_location, "wb") as f: f.write(await audio.read())
     
-    # USE GROQ API FOR TRANSCRIPTION
     with open(file_location, "rb") as file:
         transcription = groq_client.audio.transcriptions.create(
             file=(file_location, file.read()),
@@ -143,7 +142,7 @@ async def upload_audio(audio: UploadFile = File(...), passage: str = Form(...), 
     word_matcher = difflib.SequenceMatcher(None, original_words, spoken_words)
     
     errors = []
-    word_analysis = [] # NEW: Array for frontend visual feedback
+    word_analysis = []
     
     for tag, i1, i2, j1, j2 in word_matcher.get_opcodes():
         if tag == 'equal':
@@ -171,7 +170,7 @@ async def upload_audio(audio: UploadFile = File(...), passage: str = Form(...), 
     return {
         "accuracy": accuracy, 
         "transcript": raw_transcript,
-        "word_analysis": word_analysis # Sending this to frontend
+        "word_analysis": word_analysis
     }
 
 @app.get("/api/sessions/export")
@@ -190,6 +189,28 @@ def export_sessions(current_user: User = Depends(get_current_user), db: Session 
     
     output.seek(0)
     return StreamingResponse(output, media_type="text/csv", headers={"Content-Disposition": "attachment; filename=research_data.csv"})
+
+# --- Audio Route ---
+@app.get("/api/audio/{filename}")
+async def get_audio(filename: str, token: str = Query(...), db: Session = Depends(get_db)):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None: raise HTTPException(status_code=401, detail="Invalid token")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+        
+    user = db.query(User).filter(User.username == username).first()
+    if not user or user.role not in ["doctor", "admin"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+        
+    if ".." in filename or "/" in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    
+    file_path = filename
+    if os.path.exists(file_path):
+        return FileResponse(path=file_path, media_type="audio/webm")
+    raise HTTPException(status_code=404, detail="Audio file not found")
 
 # --- Admin Routes ---
 @app.get("/api/users")
