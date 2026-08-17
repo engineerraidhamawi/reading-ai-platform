@@ -1,7 +1,7 @@
 from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException, status, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.responses import StreamingResponse
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
@@ -15,6 +15,7 @@ import io
 import os
 from typing import List
 from pydantic import BaseModel
+import requests
 
 app = FastAPI()
 
@@ -33,7 +34,6 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
-# Initialize Groq Client
 groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 print("Groq Client initialized successfully!")
 
@@ -61,6 +61,30 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     user = db.query(User).filter(User.username == username).first()
     if user is None: raise credentials_exception
     return user
+
+# --- Helper Function to Upload Audio to Supabase ---
+def upload_to_supabase(file_path, file_name):
+    supabase_url = os.environ.get("SUPABASE_URL")
+    supabase_key = os.environ.get("SUPABASE_KEY")
+    
+    with open(file_path, "rb") as f:
+        file_data = f.read()
+        
+    headers = {
+        "apikey": supabase_key,
+        "Authorization": f"Bearer {supabase_key}",
+        "Content-Type": "audio/webm"
+    }
+    
+    upload_url = f"{supabase_url}/storage/v1/object/audio-files/{file_name}"
+    response = requests.post(upload_url, headers=headers, data=file_data)
+    
+    if response.status_code == 200:
+        public_url = f"{supabase_url}/storage/v1/object/public/audio-files/{file_name}"
+        return public_url
+    else:
+        print("Supabase Upload Error:", response.text)
+        return None
 
 # --- Auth Routes ---
 @app.post("/auth/register")
@@ -123,17 +147,27 @@ def get_sessions(current_user: User = Depends(get_current_user), db: Session = D
 @app.post("/api/sessions/upload")
 async def upload_audio(audio: UploadFile = File(...), passage: str = Form(...), comprehension_score: str = Form("0/2"), current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     if current_user.role != "student": raise HTTPException(status_code=403, detail="Students only")
-    file_location = f"audio_{datetime.datetime.now().timestamp()}.webm"
-    with open(file_location, "wb") as f: f.write(await audio.read())
     
-    with open(file_location, "rb") as file:
+    # Save audio temporarily
+    temp_file_name = f"audio_{datetime.datetime.now().timestamp()}.webm"
+    with open(temp_file_name, "wb") as f: f.write(await audio.read())
+    
+    # Upload to Supabase Storage
+    audio_url = upload_to_supabase(temp_file_name, temp_file_name)
+    
+    # Use Groq API for Transcription
+    with open(temp_file_name, "rb") as file:
         transcription = groq_client.audio.transcriptions.create(
-            file=(file_location, file.read()),
+            file=(temp_file_name, file.read()),
             model="whisper-large-v3",
             language="ar"
         )
     raw_transcript = transcription.text.strip()
     
+    # Clean up local file
+    if os.path.exists(temp_file_name):
+        os.remove(temp_file_name)
+        
     matcher = difflib.SequenceMatcher(None, normalize_arabic(passage).replace(" ", ""), normalize_arabic(raw_transcript).replace(" ", ""))
     accuracy = round(matcher.ratio() * 100, 2)
     
@@ -159,7 +193,8 @@ async def upload_audio(audio: UploadFile = File(...), passage: str = Form(...), 
     
     new_session = ResearchSession(
         session_id=f"SES-{datetime.datetime.now().timestamp()}", student_id=current_user.id, doctor_id=current_user.doctor_id,
-        age_range="8-10", grade="4", passage_id="PASS", passage_level="متوسط", audio_file_id=file_location,
+        age_range="8-10", grade="4", passage_id="PASS", passage_level="متوسط", 
+        audio_file_id=audio_url, # NOW SAVING THE SUPABASE URL!
         asr_transcript=raw_transcript, error_tags=";".join(errors) or "لا توجد أخطاء",
         wpm=int(len(spoken_words) / 0.5), accuracy_percent=accuracy, comprehension_score=comprehension_score,
         duration_seconds=30, consent_given=True
@@ -189,28 +224,6 @@ def export_sessions(current_user: User = Depends(get_current_user), db: Session 
     
     output.seek(0)
     return StreamingResponse(output, media_type="text/csv", headers={"Content-Disposition": "attachment; filename=research_data.csv"})
-
-# --- Audio Route ---
-@app.get("/api/audio/{filename}")
-async def get_audio(filename: str, token: str = Query(...), db: Session = Depends(get_db)):
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        if username is None: raise HTTPException(status_code=401, detail="Invalid token")
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-        
-    user = db.query(User).filter(User.username == username).first()
-    if not user or user.role not in ["doctor", "admin"]:
-        raise HTTPException(status_code=403, detail="Access denied")
-        
-    if ".." in filename or "/" in filename:
-        raise HTTPException(status_code=400, detail="Invalid filename")
-    
-    file_path = filename
-    if os.path.exists(file_path):
-        return FileResponse(path=file_path, media_type="audio/webm")
-    raise HTTPException(status_code=404, detail="Audio file not found")
 
 # --- Admin Routes ---
 @app.get("/api/users")
