@@ -22,7 +22,8 @@ export default function StudentReadingPage() {
   useEffect(() => {
     const token = localStorage.getItem('token')
     if (token) {
-      axios.get('https://reading-ai-backend.onrender.com/api/passages', { headers: { Authorization: `Bearer ${token}` } })
+      // FIXED URL HERE
+      axios.get('https://reading-ai-platform.onrender.com/api/passages', { headers: { Authorization: `Bearer ${token}` } })
         .then(res => setPassages(res.data))
         .catch(err => console.error(err))
     }
@@ -70,11 +71,12 @@ export default function StudentReadingPage() {
     formData.append('comprehension_score', score)
 
     try {
-      const res = await axios.post('https://reading-ai-backend.onrender.com/api/sessions/upload', formData, {
+      // FIXED URL HERE
+      const res = await axios.post('https://reading-ai-platform.onrender.com/api/sessions/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data', 'Authorization': `Bearer ${token}` }
       })
       setStatus(`تم التقييم! الدقة: ${res.data.accuracy}%`)
-      setWordAnalysis(res.data.word_analysis) // Save visual analysis
+      setWordAnalysis(res.data.word_analysis)
       setPhase('done')
     } catch (err) {
       setStatus('حدث خطأ أثناء الإرسال.')
@@ -82,12 +84,12 @@ export default function StudentReadingPage() {
     }
   }
 
-  // NEW: Text-to-Speech Function
+  // Text-to-Speech Function
   const speakWord = (word: string) => {
     if ('speechSynthesis' in window) {
       const utterance = new SpeechSynthesisUtterance(word)
-      utterance.lang = 'ar-SA' // Arabic
-      utterance.rate = 0.8 // Slightly slower for clarity
+      utterance.lang = 'ar-SA'
+      utterance.rate = 0.8
       window.speechSynthesis.speak(utterance)
     }
   }
