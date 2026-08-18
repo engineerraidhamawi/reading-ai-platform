@@ -41,6 +41,7 @@ class ResearchSession(Base):
     comprehension_score = Column(String)
     session_date = Column(DateTime, default=datetime.datetime.utcnow)
     duration_seconds = Column(Integer)
+    stars = Column(Integer, default=0)
     consent_given = Column(Boolean)
 
 # NEW: Passages Table
