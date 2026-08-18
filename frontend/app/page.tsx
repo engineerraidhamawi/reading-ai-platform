@@ -98,6 +98,102 @@ export default function Dashboard() {
     } catch (err) { alert('Failed to delete session') }
   }
 
+  // NEW: Generate Printable PDF Report
+  const handlePrintReport = (studentName: string) => {
+    const studentSessions = sessions.filter((s: any) => s.student_username === studentName);
+    
+    const avgAccuracy = studentSessions.length > 0 ? (studentSessions.reduce((acc: number, s: any) => acc + s.accuracy_percent, 0) / studentSessions.length).toFixed(1) : 0;
+    const avgWpm = studentSessions.length > 0 ? Math.round(studentSessions.reduce((acc: number, s: any) => acc + s.wpm, 0) / studentSessions.length) : 0;
+    
+    const errorCounts: { [key: string]: number } = {};
+    studentSessions.forEach((s: any) => {
+      if (s.error_tags && s.error_tags !== "لا توجد أخطاء") {
+        s.error_tags.split(';').forEach((word: string) => {
+          const trimmed = word.trim();
+          if (trimmed) errorCounts[trimmed] = (errorCounts[trimmed] || 0) + 1;
+        });
+      }
+    });
+    const topErrors = Object.entries(errorCounts).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([word, count]) => `<li>${word} (${count} مرة)</li>`).join('');
+
+    const reportHtml = `
+      <!DOCTYPE html>
+      <html lang="ar" dir="rtl">
+      <head>
+        <meta charset="UTF-8">
+        <title>تقرير طالب: ${studentName}</title>
+        <style>
+          body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 40px; color: #333; }
+          h1 { color: #7e22ce; border-bottom: 2px solid #e9d5ff; padding-bottom: 10px; }
+          .stats { display: flex; gap: 20px; margin-bottom: 20px; }
+          .stat-box { background: #f8f5ff; padding: 15px; border-radius: 8px; border: 1px solid #e9d5ff; flex: 1; text-align: center; }
+          .stat-box h3 { margin: 0; color: #6b21a8; font-size: 14px; }
+          .stat-box p { margin: 5px 0 0; font-size: 24px; font-weight: bold; }
+          table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+          th, td { border: 1px solid #ddd; padding: 8px; text-align: right; font-size: 12px; }
+          th { background: #f8f5ff; color: #6b21a8; }
+          .errors { margin-top: 20px; }
+          .errors ul { list-style: none; padding: 0; }
+          .errors li { background: #fef2f2; color: #b91c1c; padding: 5px 10px; margin-bottom: 5px; border-radius: 4px; display: inline-block; margin-left: 10px; }
+        </style>
+      </head>
+      <body>
+        <h1>تقرير تقدم الطالب: ${studentName}</h1>
+        <div class="stats">
+          <div class="stat-box">
+            <h3>إجمالي الجلسات</h3>
+            <p>${studentSessions.length}</p>
+          </div>
+          <div class="stat-box">
+            <h3>متوسط الدقة</h3>
+            <p>${avgAccuracy}%</p>
+          </div>
+          <div class="stat-box">
+            <h3>متوسط السرعة</h3>
+            <p>${avgWpm} WPM</p>
+          </div>
+        </div>
+        
+        ${topErrors ? `<div class="errors"><h3>أكثر الأخطاء شيوعاً:</h3><ul>${topErrors}</ul></div>` : ''}
+        
+        <h3>سجل الجلسات:</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>التاريخ</th>
+              <th>الدقة</th>
+              <th>السرعة</th>
+              <th>الفهم</th>
+              <th>الأخطاء</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${studentSessions.map((s: any) => `
+              <tr>
+                <td>${new Date(s.session_date).toLocaleDateString()}</td>
+                <td>${s.accuracy_percent}%</td>
+                <td>${s.wpm}</td>
+                <td>${s.comprehension_score}</td>
+                <td>${s.error_tags}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+        
+        <script>
+          window.onload = function() { window.print(); }
+        </script>
+      </body>
+      </html>
+    `;
+
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+      printWindow.document.write(reportHtml);
+      printWindow.document.close();
+    }
+  };
+
   const chartData = sessions.map((s: any) => ({ name: s.student_username, accuracy: s.accuracy_percent, wpm: s.wpm }))
   
   const studentProgressData = sessions
@@ -105,7 +201,6 @@ export default function Dashboard() {
     .map((s: any) => ({ name: new Date(s.session_date).toLocaleDateString(), accuracy: s.accuracy_percent, wpm: s.wpm }))
     .reverse()
 
-  // NEW: Calculate Top 5 Most Common Errors for Pie Chart
   const errorCounts: { [key: string]: number } = {}
   sessions.forEach((s: any) => {
     if (s.error_tags && s.error_tags !== "لا توجد أخطاء") {
@@ -214,7 +309,6 @@ export default function Dashboard() {
           </div>
         </div>
         
-        {/* NEW: Pie Chart for Top Errors */}
         <div className="bg-white/80 p-4 rounded-xl shadow-sm">
           <h2 className="text-sm font-bold mb-2 text-purple-900">أكثر الكلمات التي يخطئ فيها الطلاب</h2>
           <div className="w-full h-40" dir="rtl">
@@ -294,22 +388,26 @@ export default function Dashboard() {
               <button onClick={() => setSelectedStudent(null)} className="text-gray-400 hover:text-gray-600">✖️</button>
             </div>
             
-            {studentProgressData.length === 0 ? (
-              <p className="text-center text-gray-500 text-sm py-8">لا توجد بيانات كافية لهذا الطالب.</p>
-            ) : (
-              <div className="w-full h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={studentProgressData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e9d5ff" vertical={false} />
-                    <XAxis dataKey="name" tick={{ fill: '#7e22ce', fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: '#7e22ce', fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <Tooltip contentStyle={{ background: 'rgba(255,255,255,0.9)', border: '1px solid #d8b4fe', borderRadius: '8px', fontSize: '10px' }} />
-                    <Line type="monotone" dataKey="accuracy" stroke="#8b5cf6" name="الدقة %" strokeWidth={2} dot={{ r: 4 }} />
-                    <Line type="monotone" dataKey="wpm" stroke="#ec4899" name="السرعة" strokeWidth={2} dot={{ r: 4 }} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            )}
+            <div className="w-full h-64 mb-4">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={studentProgressData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e9d5ff" vertical={false} />
+                  <XAxis dataKey="name" tick={{ fill: '#7e22ce', fontSize: 10 }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fill: '#7e22ce', fontSize: 10 }} axisLine={false} tickLine={false} />
+                  <Tooltip contentStyle={{ background: 'rgba(255,255,255,0.9)', border: '1px solid #d8b4fe', borderRadius: '8px', fontSize: '10px' }} />
+                  <Line type="monotone" dataKey="accuracy" stroke="#8b5cf6" name="الدقة %" strokeWidth={2} dot={{ r: 4 }} />
+                  <Line type="monotone" dataKey="wpm" stroke="#ec4899" name="السرعة" strokeWidth={2} dot={{ r: 4 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* NEW: Print PDF Button */}
+            <div className="flex justify-center mt-4">
+              <button onClick={() => handlePrintReport(selectedStudent)} className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-6 py-2 rounded-xl font-bold text-sm shadow-lg hover:scale-105 transition">
+                🖨️ طباعة تقرير PDF
+              </button>
+            </div>
+            
             <p className="text-xs text-gray-400 text-center mt-4">اضغط خارج النافذة للإغلاق</p>
           </div>
         </div>
