@@ -2,12 +2,13 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import axios from 'axios'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, LineChart, Line } from 'recharts'
 
 export default function Dashboard() {
   const [sessions, setSessions] = useState([])
   const [passages, setPassages] = useState([])
   const [loading, setLoading] = useState(false)
+  const [selectedStudent, setSelectedStudent] = useState<string | null>(null)
   
   const [newPassage, setNewPassage] = useState('')
   const [q1, setQ1] = useState('')
@@ -73,7 +74,7 @@ export default function Dashboard() {
       setNewPassage(''); setQ1(''); setO1a(''); setO1b(''); setO1c(''); setA1(''); setQ2(''); setO2a(''); setO2b(''); setO2c(''); setA2('')
       setShowPassageForm(false)
       alert('تم إضافة النص والأسئلة بنجاح!')
-      fetchPassages() // Refresh the list
+      fetchPassages()
     } catch (err: any) {
       alert(err.response?.data?.detail || 'Failed to add passage')
     }
@@ -84,7 +85,7 @@ export default function Dashboard() {
     const token = localStorage.getItem('token')
     try {
       await axios.delete(`https://reading-ai-platform.onrender.com/api/passages/${id}`, { headers: { Authorization: `Bearer ${token}` } })
-      fetchPassages() // Refresh list
+      fetchPassages()
     } catch (err) { alert('Failed to delete passage') }
   }
 
@@ -93,11 +94,17 @@ export default function Dashboard() {
     const token = localStorage.getItem('token')
     try {
       await axios.delete(`https://reading-ai-platform.onrender.com/api/sessions/${id}`, { headers: { Authorization: `Bearer ${token}` } })
-      fetchSessions() // Refresh table
+      fetchSessions()
     } catch (err) { alert('Failed to delete session') }
   }
 
   const chartData = sessions.map((s: any) => ({ name: s.student_username, accuracy: s.accuracy_percent, wpm: s.wpm }))
+  
+  // Filter sessions for the selected student to show in the Line Chart
+  const studentProgressData = sessions
+    .filter((s: any) => s.student_username === selectedStudent)
+    .map((s: any) => ({ name: new Date(s.session_date).toLocaleDateString(), accuracy: s.accuracy_percent, wpm: s.wpm }))
+    .reverse() // Reverse so oldest is on the left
 
   return (
     <div className="p-4 md:p-6 max-w-6xl mx-auto">
@@ -213,7 +220,11 @@ export default function Dashboard() {
                   const accColor = session.accuracy_percent > 85 ? 'bg-emerald-100 text-emerald-700' : session.accuracy_percent > 60 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700';
                   return (
                     <tr key={session.session_id} className="border-b border-purple-50 hover:bg-white/60 align-top">
-                      <td className="py-2 px-2 font-bold text-purple-900 text-xs whitespace-nowrap">{session.student_username}</td>
+                      <td className="py-2 px-2 font-bold text-purple-900 text-xs whitespace-nowrap">
+                        <button onClick={() => setSelectedStudent(session.student_username)} className="hover:underline">
+                          {session.student_username}
+                        </button>
+                      </td>
                       <td className="py-2 px-2"><span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${accColor}`}>{session.accuracy_percent}%</span></td>
                       <td className="py-2 px-2 text-purple-600 font-bold text-xs whitespace-nowrap">{session.wpm} WPM</td>
                       <td className="py-2 px-2"><span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-700">{session.comprehension_score}</span></td>
@@ -235,6 +246,37 @@ export default function Dashboard() {
           </table>
         </div>
       </div>
+
+      {/* Student Progress Modal */}
+      {selectedStudent && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setSelectedStudent(null)}>
+          <div className="bg-white p-6 rounded-2xl shadow-xl max-w-lg w-full" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-purple-900">تقدم الطالب: {selectedStudent}</h3>
+              <button onClick={() => setSelectedStudent(null)} className="text-gray-400 hover:text-gray-600">✖️</button>
+            </div>
+            
+            {studentProgressData.length === 0 ? (
+              <p className="text-center text-gray-500 text-sm py-8">لا توجد بيانات كافية لهذا الطالب.</p>
+            ) : (
+              <div className="w-full h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={studentProgressData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e9d5ff" vertical={false} />
+                    <XAxis dataKey="name" tick={{ fill: '#7e22ce', fontSize: 10 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: '#7e22ce', fontSize: 10 }} axisLine={false} tickLine={false} />
+                    <Tooltip contentStyle={{ background: 'rgba(255,255,255,0.9)', border: '1px solid #d8b4fe', borderRadius: '8px', fontSize: '10px' }} />
+                    <Line type="monotone" dataKey="accuracy" stroke="#8b5cf6" name="الدقة %" strokeWidth={2} dot={{ r: 4 }} />
+                    <Line type="monotone" dataKey="wpm" stroke="#ec4899" name="السرعة" strokeWidth={2} dot={{ r: 4 }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+            <p className="text-xs text-gray-400 text-center mt-4">اضغط خارج النافذة للإغلاق</p>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }
