@@ -230,13 +230,19 @@ async def upload_audio(audio: UploadFile = File(...), passage: str = Form(...), 
                 errors.append(word)
                 word_analysis.append({"word": word, "status": "incorrect"})
     
+        # NEW: Calculate Stars
+    stars = 1 # Base star for completing
+    if accuracy >= 75: stars += 1
+    if comprehension_score == "2/2": stars += 1
+
     new_session = ResearchSession(
         session_id=f"SES-{datetime.datetime.now().timestamp()}", student_id=current_user.id, doctor_id=current_user.doctor_id,
         age_range="8-10", grade="4", passage_id="PASS", passage_level="متوسط", 
         audio_file_id=audio_url, 
         asr_transcript=raw_transcript, error_tags=";".join(errors) or "لا توجد أخطاء",
         wpm=int(len(spoken_words) / 0.5), accuracy_percent=accuracy, comprehension_score=comprehension_score,
-        duration_seconds=30, consent_given=True
+        duration_seconds=30, consent_given=True, 
+        stars=stars # NEW: Save stars
     )
     db.add(new_session)
     db.commit()
@@ -244,7 +250,8 @@ async def upload_audio(audio: UploadFile = File(...), passage: str = Form(...), 
     return {
         "accuracy": accuracy, 
         "transcript": raw_transcript,
-        "word_analysis": word_analysis
+        "word_analysis": word_analysis,
+        "stars": stars # NEW: Return stars to frontend
     }
 
 # --- AI Intervention Route (Smart Tutor) ---

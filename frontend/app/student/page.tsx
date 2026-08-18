@@ -18,6 +18,7 @@ export default function StudentReadingPage() {
   const [ans1, setAns1] = useState('')
   const [ans2, setAns2] = useState('')
   const [wordAnalysis, setWordAnalysis] = useState<any[]>([])
+  const [earnedStars, setEarnedStars] = useState(0) // NEW: Stars state
   
   // Practice state
   const [practiceQuestions, setPracticeQuestions] = useState<any[]>([])
@@ -84,6 +85,7 @@ export default function StudentReadingPage() {
       })
       setStatus(`تم التقييم! الدقة: ${res.data.accuracy}%`)
       setWordAnalysis(res.data.word_analysis)
+      setEarnedStars(res.data.stars) // NEW: Save stars
       
       // Save incorrect words for the practice phase
       const mistakes = res.data.word_analysis.filter((w: any) => w.status !== 'correct').map((w: any) => w.word)
@@ -96,7 +98,7 @@ export default function StudentReadingPage() {
     }
   }
 
-  // NEW: Generate Practice Quiz Locally (Audio-to-Text matching)
+  // Generate Practice Quiz Locally (Audio-to-Text matching)
   const startPractice = () => {
     if (errorWords.length === 0) {
       alert('أحسنت! ليس لديك أخطاء للتدرب عليها.')
@@ -105,7 +107,6 @@ export default function StudentReadingPage() {
     
     const allWords = wordAnalysis.map((w: any) => w.word)
     const questions = errorWords.slice(0, 3).map((targetWord) => {
-      // Get 2 random distractor words
       const distractors = allWords.filter(w => w !== targetWord).sort(() => 0.5 - Math.random()).slice(0, 2)
       const options = [targetWord, ...distractors].sort(() => 0.5 - Math.random())
       
@@ -139,6 +140,7 @@ export default function StudentReadingPage() {
     setAns1('')
     setAns2('')
     setWordAnalysis([])
+    setEarnedStars(0) // NEW: Reset stars
     setErrorWords([])
     setPracticeQuestions([])
     setPracticeAnswers([])
@@ -212,6 +214,16 @@ export default function StudentReadingPage() {
           <div className="text-center py-8">
             <div className="text-6xl mb-4">🎉</div>
             <h2 className="text-2xl font-bold text-purple-700 mb-4">أحسنت! لقد أكملت الحصة</h2>
+            
+            {/* NEW: Stars Display */}
+            <div className="flex justify-center gap-2 mb-6">
+              {[1, 2, 3].map((i) => (
+                <span key={i} className={`text-4xl transition-all duration-500 ${i <= earnedStars ? 'opacity-100 scale-100' : 'opacity-20 scale-90'}`}>
+                  ⭐
+                </span>
+              ))}
+            </div>
+
             <p className="text-pink-600 font-semibold mb-8">{status}</p>
             <div className="bg-purple-50/60 border border-purple-100 p-6 rounded-2xl mb-6 text-right" dir="rtl">
               <h3 className="font-bold text-purple-900 mb-3 text-center">مراجعة الكلمات:</h3>
