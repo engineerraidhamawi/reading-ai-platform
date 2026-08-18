@@ -85,6 +85,7 @@ def upload_to_supabase(file_path, file_name):
         print("Supabase Upload Error:", response.text)
         return None
 
+# --- Auth Routes ---
 @app.post("/auth/register")
 def register_user(username: str = Form(...), password: str = Form(...), role: str = Form(...), doctor_username: str = Form(None), current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     if current_user.role != "admin": raise HTTPException(status_code=403, detail="Admin only")
@@ -109,6 +110,7 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
         raise HTTPException(status_code=400, detail="Incorrect username or password")
     return {"access_token": create_access_token(data={"sub": user.username, "role": user.role, "id": user.id}), "token_type": "bearer", "role": user.role, "username": user.username}
 
+# --- Passage Routes ---
 @app.post("/api/passages")
 def create_passage(
     text: str = Form(...), 
@@ -137,6 +139,7 @@ def get_passages(current_user: User = Depends(get_current_user), db: Session = D
         if doctor: return db.query(Passage).filter(Passage.created_by == doctor.id).all()
     return db.query(Passage).all()
 
+# --- Session Routes ---
 @app.get("/api/sessions")
 def get_sessions(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     query = db.query(ResearchSession, User.username).join(User, ResearchSession.student_id == User.id)
@@ -227,6 +230,30 @@ def export_sessions(current_user: User = Depends(get_current_user), db: Session 
     output.seek(0)
     return StreamingResponse(output, media_type="text/csv", headers={"Content-Disposition": "attachment; filename=research_data.csv"})
 
+# --- Delete Routes (Doctor/Admin) ---
+@app.delete("/api/passages/{passage_id}")
+def delete_passage(passage_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if current_user.role not in ["doctor", "admin"]: raise HTTPException(status_code=403, detail="Doctors only")
+    passage = db.query(Passage).filter(Passage.id == passage_id).first()
+    if not passage: raise HTTPException(status_code=404, detail="Passage not found")
+    if current_user.role == "doctor" and passage.created_by != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    db.delete(passage)
+    db.commit()
+    return {"message": "Passage deleted"}
+
+@app.delete("/api/sessions/{session_id}")
+def delete_session(session_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if current_user.role not in ["doctor", "admin"]: raise HTTPException(status_code=403, detail="Doctors only")
+    session = db.query(ResearchSession).filter(ResearchSession.session_id == session_id).first()
+    if not session: raise HTTPException(status_code=404, detail="Session not found")
+    if current_user.role == "doctor" and session.doctor_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    db.delete(session)
+    db.commit()
+    return {"message": "Session deleted"}
+
+# --- Audio Route ---
 @app.get("/api/audio/{filename}")
 async def get_audio(filename: str, token: str = Query(...), db: Session = Depends(get_db)):
     try:
@@ -248,6 +275,7 @@ async def get_audio(filename: str, token: str = Query(...), db: Session = Depend
         return FileResponse(path=file_path, media_type="audio/webm")
     raise HTTPException(status_code=404, detail="Audio file not found")
 
+# --- Admin Routes ---
 @app.get("/api/users")
 def get_all_users(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     if current_user.role != "admin": raise HTTPException(status_code=403, detail="Admin only")

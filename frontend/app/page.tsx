@@ -6,6 +6,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGri
 
 export default function Dashboard() {
   const [sessions, setSessions] = useState([])
+  const [passages, setPassages] = useState([])
   const [loading, setLoading] = useState(false)
   
   const [newPassage, setNewPassage] = useState('')
@@ -15,6 +16,7 @@ export default function Dashboard() {
   const [o2a, setO2a] = useState(''); const [o2b, setO2b] = useState(''); const [o2c, setO2c] = useState(''); const [a2, setA2] = useState('')
   
   const [showPassageForm, setShowPassageForm] = useState(false)
+  const [showPassageList, setShowPassageList] = useState(false)
 
   const fetchSessions = useCallback(async () => {
     const token = localStorage.getItem('token')
@@ -28,11 +30,20 @@ export default function Dashboard() {
     } finally { setLoading(false) }
   }, [])
 
+  const fetchPassages = useCallback(async () => {
+    const token = localStorage.getItem('token')
+    try {
+      const res = await axios.get('https://reading-ai-platform.onrender.com/api/passages', { headers: { Authorization: `Bearer ${token}` } })
+      setPassages(res.data)
+    } catch (err) { console.error("Failed to fetch passages") }
+  }, [])
+
   useEffect(() => {
     fetchSessions()
+    fetchPassages()
     const interval = setInterval(fetchSessions, 5000)
     return () => clearInterval(interval)
-  }, [fetchSessions])
+  }, [fetchSessions, fetchPassages])
 
   const handleExport = async () => {
     const token = localStorage.getItem('token')
@@ -57,17 +68,33 @@ export default function Dashboard() {
       formData.append('question1', q1); formData.append('option1a', o1a); formData.append('option1b', o1b); formData.append('option1c', o1c); formData.append('answer1', a1)
       formData.append('question2', q2); formData.append('option2a', o2a); formData.append('option2b', o2b); formData.append('option2c', o2c); formData.append('answer2', a2)
 
-      await axios.post('https://reading-ai-platform.onrender.com/api/passages', formData, { 
-        headers: { Authorization: `Bearer ${token}` }
-      })
+      await axios.post('https://reading-ai-platform.onrender.com/api/passages', formData, { headers: { Authorization: `Bearer ${token}` } })
       
       setNewPassage(''); setQ1(''); setO1a(''); setO1b(''); setO1c(''); setA1(''); setQ2(''); setO2a(''); setO2b(''); setO2c(''); setA2('')
       setShowPassageForm(false)
       alert('تم إضافة النص والأسئلة بنجاح!')
+      fetchPassages() // Refresh the list
     } catch (err: any) {
-      const errorMessage = err.response?.data?.detail?.[0]?.msg || err.response?.data?.detail || 'Failed to add passage'
-      alert(errorMessage)
+      alert(err.response?.data?.detail || 'Failed to add passage')
     }
+  }
+
+  const handleDeletePassage = async (id: number) => {
+    if (!confirm('Are you sure you want to delete this passage?')) return
+    const token = localStorage.getItem('token')
+    try {
+      await axios.delete(`https://reading-ai-platform.onrender.com/api/passages/${id}`, { headers: { Authorization: `Bearer ${token}` } })
+      fetchPassages() // Refresh list
+    } catch (err) { alert('Failed to delete passage') }
+  }
+
+  const handleDeleteSession = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this session?')) return
+    const token = localStorage.getItem('token')
+    try {
+      await axios.delete(`https://reading-ai-platform.onrender.com/api/sessions/${id}`, { headers: { Authorization: `Bearer ${token}` } })
+      fetchSessions() // Refresh table
+    } catch (err) { alert('Failed to delete session') }
   }
 
   const chartData = sessions.map((s: any) => ({ name: s.student_username, accuracy: s.accuracy_percent, wpm: s.wpm }))
@@ -79,8 +106,9 @@ export default function Dashboard() {
           <h1 className="text-xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-pink-600 tracking-tight">لوحة تحكم الدكتورة</h1>
           <p className="text-purple-500 text-xs font-medium">نظرة شاملة على أداء الطلاب</p>
         </div>
-        <div className="flex items-center gap-2">
-          <button onClick={() => setShowPassageForm(!showPassageForm)} className="bg-white/50 border border-white/60 text-purple-700 px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-white/80 transition">➕ إضافة نص</button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button onClick={() => { setShowPassageForm(!showPassageForm); setShowPassageList(false) }} className="bg-white/50 border border-white/60 text-purple-700 px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-white/80 transition">➕ إضافة نص</button>
+          <button onClick={() => { setShowPassageList(!showPassageList); setShowPassageForm(false) }} className="bg-white/50 border border-white/60 text-purple-700 px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-white/80 transition">📄 إدارة النصوص</button>
           <button onClick={handleExport} className="bg-gradient-to-r from-emerald-500 to-cyan-500 text-white px-3 py-1.5 rounded-lg font-bold text-xs shadow hover:scale-105 transition">⬇️ Excel</button>
         </div>
       </header>
@@ -90,7 +118,6 @@ export default function Dashboard() {
           <h3 className="text-base font-bold text-purple-900 mb-3">إضافة نص قرائي وأسئلة</h3>
           <form onSubmit={handleAddPassage} className="flex flex-col gap-3">
             <textarea value={newPassage} onChange={(e) => setNewPassage(e.target.value)} placeholder="اكتب النص هنا..." className="p-2 rounded-lg bg-white border border-purple-100 focus:ring-1 focus:ring-purple-400 h-16 text-xs text-gray-900" required />
-            
             <div className="border-t pt-2">
               <h4 className="font-bold text-purple-800 text-sm mb-2">السؤال الأول</h4>
               <input value={q1} onChange={(e) => setQ1(e.target.value)} placeholder="نص السؤال" className="w-full p-2 mb-2 rounded-md bg-white border border-purple-100 text-xs text-gray-900" required />
@@ -101,7 +128,6 @@ export default function Dashboard() {
                 <input value={a1} onChange={(e) => setA1(e.target.value)} placeholder="الإجابة الصحيحة" className="p-2 rounded-md bg-emerald-50 border border-emerald-200 text-xs text-gray-900" required />
               </div>
             </div>
-
             <div className="border-t pt-2">
               <h4 className="font-bold text-purple-800 text-sm mb-2">السؤال الثاني</h4>
               <input value={q2} onChange={(e) => setQ2(e.target.value)} placeholder="نص السؤال" className="w-full p-2 mb-2 rounded-md bg-white border border-purple-100 text-xs text-gray-900" required />
@@ -112,9 +138,24 @@ export default function Dashboard() {
                 <input value={a2} onChange={(e) => setA2(e.target.value)} placeholder="الإجابة الصحيحة" className="p-2 rounded-md bg-emerald-50 border border-emerald-200 text-xs text-gray-900" required />
               </div>
             </div>
-
             <button type="submit" className="bg-purple-600 text-white px-4 py-2 rounded-lg font-bold w-fit text-xs hover:bg-purple-700 transition mt-2">حفظ النص والأسئلة</button>
           </form>
+        </div>
+      )}
+
+      {showPassageList && (
+        <div className="bg-white/80 border border-purple-200 p-4 rounded-xl shadow-lg mb-4">
+          <h3 className="text-base font-bold text-purple-900 mb-3">إدارة النصوص القرائية</h3>
+          <div className="flex flex-col gap-2">
+            {passages.length === 0 ? <p className="text-xs text-gray-500">لا توجد نصوص.</p> : (
+              passages.map((p: any) => (
+                <div key={p.id} className="flex justify-between items-center border-b border-purple-50 py-2">
+                  <span className="text-xs text-gray-800 font-medium max-w-[80%] truncate">{p.text}</span>
+                  <button onClick={() => handleDeletePassage(p.id)} className="text-red-500 hover:text-red-700 text-xs font-bold">🗑️ حذف</button>
+                </div>
+              ))
+            )}
+          </div>
         </div>
       )}
 
@@ -161,32 +202,30 @@ export default function Dashboard() {
                 <th className="py-2 px-2 text-[10px] font-bold text-purple-700">الفهم</th>
                 <th className="py-2 px-2 text-[10px] font-bold text-purple-700">الأخطاء</th>
                 <th className="py-2 px-2 text-[10px] font-bold text-purple-700">النص والصوت</th>
+                <th className="py-2 px-2 text-[10px] font-bold text-purple-700">إجراء</th>
               </tr>
             </thead>
             <tbody>
               {sessions.length === 0 ? (
-                <tr><td colSpan={6} className="py-6 text-center text-purple-400 text-xs">لا توجد بيانات حالياً.</td></tr>
+                <tr><td colSpan={7} className="py-6 text-center text-purple-400 text-xs">لا توجد بيانات حالياً.</td></tr>
               ) : (
                 sessions.map((session: any) => {
                   const accColor = session.accuracy_percent > 85 ? 'bg-emerald-100 text-emerald-700' : session.accuracy_percent > 60 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700';
                   return (
                     <tr key={session.session_id} className="border-b border-purple-50 hover:bg-white/60 align-top">
                       <td className="py-2 px-2 font-bold text-purple-900 text-xs whitespace-nowrap">{session.student_username}</td>
-                      <td className="py-2 px-2">
-                        <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${accColor}`}>
-                          {session.accuracy_percent}%
-                        </span>
-                      </td>
-                      <td className="py-2 px-2 text-purple-600 font-bold text-xs whitespace-nowrap">{session.wpm} <span className="text-[10px] text-purple-300">WPM</span></td>
+                      <td className="py-2 px-2"><span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${accColor}`}>{session.accuracy_percent}%</span></td>
+                      <td className="py-2 px-2 text-purple-600 font-bold text-xs whitespace-nowrap">{session.wpm} WPM</td>
                       <td className="py-2 px-2"><span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-700">{session.comprehension_score}</span></td>
                       <td className="py-2 px-2 text-red-500 max-w-[120px] text-[10px] leading-relaxed">{session.error_tags}</td>
                       <td className="py-2 px-2 text-purple-500 max-w-[250px] text-[10px] leading-relaxed">
                         <div className="bg-white/60 rounded-md p-1.5 border border-purple-50">
                           <p className="italic mb-1">"{session.asr_transcript}"</p>
-                          {session.audio_file_id && (
-                            <audio controls src={session.audio_file_id} className="w-full h-6 mt-1">Your browser does not support the audio element.</audio>
-                          )}
+                          {session.audio_file_id && (<audio controls src={session.audio_file_id} className="w-full h-6 mt-1">Your browser does not support the audio element.</audio>)}
                         </div>
+                      </td>
+                      <td className="py-2 px-2 text-center">
+                        <button onClick={() => handleDeleteSession(session.session_id)} className="text-red-500 hover:text-red-700 text-lg">🗑️</button>
                       </td>
                     </tr>
                   )
