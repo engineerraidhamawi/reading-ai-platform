@@ -21,6 +21,11 @@ export default function RootLayout({
 
   return (
     <html lang="ar" dir="rtl" suppressHydrationWarning>
+        <head>
+        <link rel="manifest" href="/manifest.json" />
+        <meta name="theme-color" content="#7e22ce" />
+        <title>منصة القراءة الذكية</title>
+      </head>
       <body className="font-sans antialiased text-slate-800" suppressHydrationWarning>
         <div className="flex min-h-screen bg-gradient-to-br from-indigo-100 via-purple-50 to-pink-100">
           

@@ -1,0 +1,17 @@
+{
+  "name": "منصة القراءة الذكية",
+  "short_name": "Reading AI",
+  "description": "منصة تشخيص صعوبات القراءة بالذكاء الاصطناعي",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8f5ff",
+  "theme_color": "#7e22ce",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
