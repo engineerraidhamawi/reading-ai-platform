@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import axios from 'axios'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, LineChart, Line } from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, LineChart, Line, PieChart, Pie, Cell } from 'recharts'
 
 export default function Dashboard() {
   const [sessions, setSessions] = useState([])
@@ -100,11 +100,27 @@ export default function Dashboard() {
 
   const chartData = sessions.map((s: any) => ({ name: s.student_username, accuracy: s.accuracy_percent, wpm: s.wpm }))
   
-  // Filter sessions for the selected student to show in the Line Chart
   const studentProgressData = sessions
     .filter((s: any) => s.student_username === selectedStudent)
     .map((s: any) => ({ name: new Date(s.session_date).toLocaleDateString(), accuracy: s.accuracy_percent, wpm: s.wpm }))
-    .reverse() // Reverse so oldest is on the left
+    .reverse()
+
+  // NEW: Calculate Top 5 Most Common Errors for Pie Chart
+  const errorCounts: { [key: string]: number } = {}
+  sessions.forEach((s: any) => {
+    if (s.error_tags && s.error_tags !== "لا توجد أخطاء") {
+      s.error_tags.split(';').forEach((word: string) => {
+        const trimmed = word.trim()
+        if (trimmed) errorCounts[trimmed] = (errorCounts[trimmed] || 0) + 1
+      })
+    }
+  })
+  const pieData = Object.entries(errorCounts)
+    .map(([name, value]) => ({ name, value }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 5)
+    
+  const PIE_COLORS = ['#8b5cf6', '#ec4899', '#06b6d4', '#f59e0b', '#10b981']
 
   return (
     <div className="p-4 md:p-6 max-w-6xl mx-auto">
@@ -181,19 +197,42 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="bg-white/80 p-4 rounded-xl shadow-sm mb-4">
-        <h2 className="text-sm font-bold mb-2 text-purple-900">رسم بياني لأداء الطلاب</h2>
-        <div className="w-full h-40" dir="rtl">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e9d5ff" vertical={false} />
-              <XAxis dataKey="name" tick={{ fill: '#7e22ce', fontSize: 10 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: '#7e22ce', fontSize: 10 }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={{ background: 'rgba(255,255,255,0.9)', border: '1px solid #d8b4fe', borderRadius: '8px', fontSize: '10px' }} />
-              <Bar dataKey="accuracy" fill="#8b5cf6" name="الدقة %" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="wpm" fill="#ec4899" name="السرعة" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        <div className="bg-white/80 p-4 rounded-xl shadow-sm">
+          <h2 className="text-sm font-bold mb-2 text-purple-900">رسم بياني لأداء الطلاب</h2>
+          <div className="w-full h-40" dir="rtl">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e9d5ff" vertical={false} />
+                <XAxis dataKey="name" tick={{ fill: '#7e22ce', fontSize: 10 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: '#7e22ce', fontSize: 10 }} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={{ background: 'rgba(255,255,255,0.9)', border: '1px solid #d8b4fe', borderRadius: '8px', fontSize: '10px' }} />
+                <Bar dataKey="accuracy" fill="#8b5cf6" name="الدقة %" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="wpm" fill="#ec4899" name="السرعة" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+        
+        {/* NEW: Pie Chart for Top Errors */}
+        <div className="bg-white/80 p-4 rounded-xl shadow-sm">
+          <h2 className="text-sm font-bold mb-2 text-purple-900">أكثر الكلمات التي يخطئ فيها الطلاب</h2>
+          <div className="w-full h-40" dir="rtl">
+            {pieData.length === 0 ? (
+              <p className="text-center text-gray-400 text-xs mt-16">لا توجد أخطاء مسجلة بعد.</p>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={50} fill="#8884d8">
+                    {pieData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip contentStyle={{ background: 'rgba(255,255,255,0.9)', border: '1px solid #d8b4fe', borderRadius: '8px', fontSize: '10px' }} />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
+          </div>
         </div>
       </div>
 
@@ -247,7 +286,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Student Progress Modal */}
       {selectedStudent && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setSelectedStudent(null)}>
           <div className="bg-white p-6 rounded-2xl shadow-xl max-w-lg w-full" onClick={e => e.stopPropagation()}>
@@ -276,7 +314,6 @@ export default function Dashboard() {
           </div>
         </div>
       )}
-
     </div>
   )
 }
