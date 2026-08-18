@@ -19,10 +19,9 @@ export default function StudentReadingPage() {
   const [ans2, setAns2] = useState('')
   const [wordAnalysis, setWordAnalysis] = useState<any[]>([])
   
-  // NEW: Practice state
+  // Practice state
   const [practiceQuestions, setPracticeQuestions] = useState<any[]>([])
   const [practiceAnswers, setPracticeAnswers] = useState<string[]>([])
-  const [practiceLoading, setPracticeLoading] = useState(false)
   const [errorWords, setErrorWords] = useState<string[]>([])
 
   useEffect(() => {
@@ -97,27 +96,30 @@ export default function StudentReadingPage() {
     }
   }
 
-  // NEW: Generate AI Practice Questions
-  const startPractice = async () => {
+  // NEW: Generate Practice Quiz Locally (Audio-to-Text matching)
+  const startPractice = () => {
     if (errorWords.length === 0) {
       alert('أحسنت! ليس لديك أخطاء للتدرب عليها.')
       return
     }
-    setPracticeLoading(true)
+    
+    const allWords = wordAnalysis.map((w: any) => w.word)
+    const questions = errorWords.slice(0, 3).map((targetWord) => {
+      // Get 2 random distractor words
+      const distractors = allWords.filter(w => w !== targetWord).sort(() => 0.5 - Math.random()).slice(0, 2)
+      const options = [targetWord, ...distractors].sort(() => 0.5 - Math.random())
+      
+      return {
+        question: "استمع جيداً واختر الكلمة الصحيحة",
+        audioWord: targetWord,
+        options: options,
+        answer: targetWord
+      }
+    })
+    
+    setPracticeQuestions(questions)
+    setPracticeAnswers([])
     setPhase('practice')
-    const token = localStorage.getItem('token')
-    try {
-      const res = await axios.post('https://reading-ai-platform.onrender.com/api/intervention/generate', 
-        { errors: errorWords }, 
-        { headers: { Authorization: `Bearer ${token}` } }
-      )
-      setPracticeQuestions(res.data.questions || [])
-    } catch (err) {
-      alert('تعذر توليد أسئلة التدريب حالياً.')
-      setPhase('done')
-    } finally {
-      setPracticeLoading(false)
-    }
   }
 
   const speakWord = (word: string) => {
@@ -129,7 +131,6 @@ export default function StudentReadingPage() {
     }
   }
 
-  // NEW: Reset state and go back to passage selection
   const handleGoHome = () => {
     setPhase('select')
     setSelectedPassage(null)
@@ -221,60 +222,57 @@ export default function StudentReadingPage() {
               </div>
             </div>
             
-            {/* NEW: Start Practice Button */}
             {errorWords.length > 0 && (
               <button onClick={startPractice} className="bg-gradient-to-r from-amber-500 to-orange-500 text-white px-8 py-3 rounded-2xl font-bold shadow-lg hover:scale-105 transition mt-4">
                 🧠 تدرب على أخطائك
               </button>
             )}
             
-            {/* NEW: Back to Home Button */}
             <button onClick={handleGoHome} className="bg-slate-800/80 text-white px-8 py-3 rounded-2xl font-bold hover:bg-slate-700 transition mt-4">
               العودة لاختيار نص جديد 🏠
             </button>
           </div>
         )}
 
-        {/* NEW: Practice Phase */}
         {phase === 'practice' && (
           <div className="text-center py-8">
             <h2 className="text-2xl font-bold text-purple-700 mb-6">تمرين العلاج الذكي 🤖</h2>
-            {practiceLoading ? (
-              <p className="text-purple-600 font-bold animate-pulse">جارٍ توليد أسئلة التدريب بالذكاء الاصطناعي...</p>
-            ) : practiceQuestions.length > 0 ? (
-              <div className="flex flex-col gap-8 text-right">
-                {practiceQuestions.map((q, idx) => (
-                  <div key={idx}>
-                    <p className="font-bold mb-3 text-purple-800">{idx + 1}. {q.question}</p>
-                    <div className="flex gap-4 flex-wrap">
-                      {q.options.map((opt: string, i: number) => (
-                        <button 
-                          key={i} 
-                          onClick={() => {
-                            const newAnswers = [...practiceAnswers]
-                            newAnswers[idx] = opt
-                            setPracticeAnswers(newAnswers)
-                          }} 
-                          className={`px-5 py-2 rounded-xl border ${practiceAnswers[idx] === opt ? 'bg-purple-600 text-white' : 'bg-white/50'}`}
-                        >
-                          {opt}
-                        </button>
-                      ))}
-                    </div>
-                    {practiceAnswers[idx] && (
-                      <p className={`mt-2 text-sm font-bold ${practiceAnswers[idx] === q.answer ? 'text-emerald-600' : 'text-red-500'}`}>
-                        {practiceAnswers[idx] === q.answer ? '✅ إجابة صحيحة!' : `❌ الإجابة الصحيحة: ${q.answer}`}
-                      </p>
-                    )}
+            <div className="flex flex-col gap-8 text-right">
+              {practiceQuestions.map((q, idx) => (
+                <div key={idx} className="text-center">
+                  <p className="font-bold mb-3 text-purple-800">{idx + 1}. {q.question}</p>
+                  <button 
+                    onClick={() => speakWord(q.audioWord)} 
+                    className="bg-purple-600 text-white px-6 py-3 rounded-full font-bold shadow-lg hover:scale-105 transition mb-4 animate-pulse"
+                  >
+                    🔊 استمع للكلمة
+                  </button>
+                  <div className="flex gap-4 flex-wrap justify-center">
+                    {q.options.map((opt: string, i: number) => (
+                      <button 
+                        key={i} 
+                        onClick={() => {
+                          const newAnswers = [...practiceAnswers]
+                          newAnswers[idx] = opt
+                          setPracticeAnswers(newAnswers)
+                        }} 
+                        className={`px-5 py-2 rounded-xl border ${practiceAnswers[idx] === opt ? 'bg-purple-600 text-white' : 'bg-white/50'}`}
+                      >
+                        {opt}
+                      </button>
+                    ))}
                   </div>
-                ))}
-                <button onClick={handleGoHome} className="bg-slate-800/80 text-white px-8 py-3 rounded-2xl font-bold hover:bg-slate-700 transition mt-4 self-center">
-                  إنهاء التمرين والعودة للرئيسية 🏠
-                </button>
-              </div>
-            ) : (
-              <p className="text-red-500">تعذر توليد الأسئلة.</p>
-            )}
+                  {practiceAnswers[idx] && (
+                    <p className={`mt-2 text-sm font-bold ${practiceAnswers[idx] === q.answer ? 'text-emerald-600' : 'text-red-500'}`}>
+                      {practiceAnswers[idx] === q.answer ? '✅ إجابة صحيحة!' : `❌ الإجابة الصحيحة: ${q.answer}`}
+                    </p>
+                  )}
+                </div>
+              ))}
+              <button onClick={handleGoHome} className="bg-slate-800/80 text-white px-8 py-3 rounded-2xl font-bold hover:bg-slate-700 transition mt-4 self-center">
+                إنهاء التمرين والعودة للرئيسية 🏠
+              </button>
+            </div>
           </div>
         )}
       </div>
