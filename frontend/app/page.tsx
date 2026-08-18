@@ -159,11 +159,13 @@ export default function Dashboard() {
                 <th className="py-2 px-2 text-[10px] font-bold text-purple-700">النص والصوت</th>
               </tr>
             </thead>
-            <tbody>
+                    <tbody>
               {sessions.length === 0 ? (
-                <tr><td colSpan={6} className="py-6 text-center text-purple-400 text-xs">لا توجد بيانات حالياً.</td></tr>
+                <tr>
+                  <td colSpan={6} className="py-6 text-center text-purple-400 text-xs">لا توجد بيانات حالياً.</td>
+                </tr>
               ) : (
-                                sessions.map((session: any) => (
+                sessions.map((session: any) => (
                   <tr key={session.session_id} className="border-b border-purple-50 hover:bg-white/60 align-top">
                     <td className="py-2 px-2 font-bold text-purple-900 text-xs whitespace-nowrap">{session.student_username}</td>
                     <td className="py-2 px-2">
@@ -173,7 +175,7 @@ export default function Dashboard() {
                     </td>
                     <td className="py-2 px-2 text-purple-600 font-bold text-xs whitespace-nowrap">{session.wpm} <span className="text-[10px] text-purple-300">WPM</span></td>
                     <td className="py-2 px-2"><span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-700">{session.comprehension_score}</span></td>
-                    <td className="py-2 px-2 text-red-500 max-w-[120px] text-[10px] leading-relaxed">{session.error_tags}</td>
+                    <td className="py-2 px-2 text-red-500 max-w-[120px] text-[10px] leading-relaxed break-words">{session.error_tags}</td>
                     <td className="py-2 px-2 text-purple-500 max-w-[250px] text-[10px] leading-relaxed break-words">
                       <div className="bg-white/60 rounded-md p-1.5 border border-purple-50">
                         <p className="italic mb-1">"{session.asr_transcript}"</p>
@@ -184,7 +186,8 @@ export default function Dashboard() {
                     </td>
                   </tr>
                 ))
-                  </tbody>
+              )}
+            </tbody>
           </table>
         </div>
       </div>
