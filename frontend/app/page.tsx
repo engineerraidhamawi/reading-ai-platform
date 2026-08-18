@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import axios from 'axios'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
+
 export default function Dashboard() {
   const [sessions, setSessions] = useState([])
   const [loading, setLoading] = useState(false)
@@ -50,19 +51,22 @@ export default function Dashboard() {
     e.preventDefault()
     const token = localStorage.getItem('token')
     try {
-      const params = new URLSearchParams()
-      params.append('text', newPassage)
-      params.append('level', 'متوسط')
-      params.append('question1', q1); params.append('option1a', o1a); params.append('option1b', o1b); params.append('option1c', o1c); params.append('answer1', a1)
-      params.append('question2', q2); params.append('option2a', o2a); params.append('option2b', o2b); params.append('option2c', o2c); params.append('answer2', a2)
+      const formData = new FormData()
+      formData.append('text', newPassage)
+      formData.append('level', 'متوسط')
+      formData.append('question1', q1); formData.append('option1a', o1a); formData.append('option1b', o1b); formData.append('option1c', o1c); formData.append('answer1', a1)
+      formData.append('question2', q2); formData.append('option2a', o2a); formData.append('option2b', o2b); formData.append('option2c', o2c); formData.append('answer2', a2)
 
-      await axios.post('https://reading-ai-platform.onrender.com/api/passages', params, { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/x-www-form-urlencoded' } })
+      await axios.post('https://reading-ai-platform.onrender.com/api/passages', formData, { 
+        headers: { Authorization: `Bearer ${token}` }
+      })
       
       setNewPassage(''); setQ1(''); setO1a(''); setO1b(''); setO1c(''); setA1(''); setQ2(''); setO2a(''); setO2b(''); setO2c(''); setA2('')
       setShowPassageForm(false)
       alert('تم إضافة النص والأسئلة بنجاح!')
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Failed to add passage')
+      const errorMessage = err.response?.data?.detail?.[0]?.msg || err.response?.data?.detail || 'Failed to add passage'
+      alert(errorMessage)
     }
   }
 
@@ -82,54 +86,54 @@ export default function Dashboard() {
       </header>
 
       {showPassageForm && (
-        <div className="bg-white/70 border border-purple-200 p-4 rounded-xl shadow-lg mb-4">
+        <div className="bg-white/80 border border-purple-200 p-4 rounded-xl shadow-lg mb-4">
           <h3 className="text-base font-bold text-purple-900 mb-3">إضافة نص قرائي وأسئلة</h3>
           <form onSubmit={handleAddPassage} className="flex flex-col gap-3">
-            <textarea value={newPassage} onChange={(e) => setNewPassage(e.target.value)} placeholder="اكتب النص هنا..." className="p-2 rounded-lg bg-white border border-purple-100 focus:ring-1 focus:ring-purple-400 h-16 text-xs" required />
+            <textarea value={newPassage} onChange={(e) => setNewPassage(e.target.value)} placeholder="اكتب النص هنا..." className="p-2 rounded-lg bg-white border border-purple-100 focus:ring-1 focus:ring-purple-400 h-16 text-xs text-gray-900" required />
             
             <div className="border-t pt-2">
               <h4 className="font-bold text-purple-800 text-sm mb-2">السؤال الأول</h4>
-              <input value={q1} onChange={(e) => setQ1(e.target.value)} placeholder="نص السؤال" className="w-full p-1.5 mb-2 rounded-md bg-white border border-purple-100 text-xs" required />
+              <input value={q1} onChange={(e) => setQ1(e.target.value)} placeholder="نص السؤال" className="w-full p-2 mb-2 rounded-md bg-white border border-purple-100 text-xs text-gray-900" required />
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                <input value={o1a} onChange={(e) => setO1a(e.target.value)} placeholder="الخيار 1" className="p-1.5 rounded-md bg-white border border-purple-100 text-xs" required />
-                <input value={o1b} onChange={(e) => setO1b(e.target.value)} placeholder="الخيار 2" className="p-1.5 rounded-md bg-white border border-purple-100 text-xs" required />
-                <input value={o1c} onChange={(e) => setO1c(e.target.value)} placeholder="الخيار 3" className="p-1.5 rounded-md bg-white border border-purple-100 text-xs" required />
-                <input value={a1} onChange={(e) => setA1(e.target.value)} placeholder="الإجابة الصحيحة" className="p-1.5 rounded-md bg-emerald-50 border border-emerald-200 text-xs" required />
+                <input value={o1a} onChange={(e) => setO1a(e.target.value)} placeholder="الخيار 1" className="p-2 rounded-md bg-white border border-purple-100 text-xs text-gray-900" required />
+                <input value={o1b} onChange={(e) => setO1b(e.target.value)} placeholder="الخيار 2" className="p-2 rounded-md bg-white border border-purple-100 text-xs text-gray-900" required />
+                <input value={o1c} onChange={(e) => setO1c(e.target.value)} placeholder="الخيار 3" className="p-2 rounded-md bg-white border border-purple-100 text-xs text-gray-900" required />
+                <input value={a1} onChange={(e) => setA1(e.target.value)} placeholder="الإجابة الصحيحة" className="p-2 rounded-md bg-emerald-50 border border-emerald-200 text-xs text-gray-900" required />
               </div>
             </div>
 
             <div className="border-t pt-2">
               <h4 className="font-bold text-purple-800 text-sm mb-2">السؤال الثاني</h4>
-              <input value={q2} onChange={(e) => setQ2(e.target.value)} placeholder="نص السؤال" className="w-full p-1.5 mb-2 rounded-md bg-white border border-purple-100 text-xs" required />
+              <input value={q2} onChange={(e) => setQ2(e.target.value)} placeholder="نص السؤال" className="w-full p-2 mb-2 rounded-md bg-white border border-purple-100 text-xs text-gray-900" required />
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                <input value={o2a} onChange={(e) => setO2a(e.target.value)} placeholder="الخيار 1" className="p-1.5 rounded-md bg-white border border-purple-100 text-xs" required />
-                <input value={o2b} onChange={(e) => setO2b(e.target.value)} placeholder="الخيار 2" className="p-1.5 rounded-md bg-white border border-purple-100 text-xs" required />
-                <input value={o2c} onChange={(e) => setO2c(e.target.value)} placeholder="الخيار 3" className="p-1.5 rounded-md bg-white border border-purple-100 text-xs" required />
-                <input value={a2} onChange={(e) => setA2(e.target.value)} placeholder="الإجابة الصحيحة" className="p-1.5 rounded-md bg-emerald-50 border border-emerald-200 text-xs" required />
+                <input value={o2a} onChange={(e) => setO2a(e.target.value)} placeholder="الخيار 1" className="p-2 rounded-md bg-white border border-purple-100 text-xs text-gray-900" required />
+                <input value={o2b} onChange={(e) => setO2b(e.target.value)} placeholder="الخيار 2" className="p-2 rounded-md bg-white border border-purple-100 text-xs text-gray-900" required />
+                <input value={o2c} onChange={(e) => setO2c(e.target.value)} placeholder="الخيار 3" className="p-2 rounded-md bg-white border border-purple-100 text-xs text-gray-900" required />
+                <input value={a2} onChange={(e) => setA2(e.target.value)} placeholder="الإجابة الصحيحة" className="p-2 rounded-md bg-emerald-50 border border-emerald-200 text-xs text-gray-900" required />
               </div>
             </div>
 
-            <button type="submit" className="bg-purple-600 text-white px-4 py-1.5 rounded-lg font-bold w-fit text-xs hover:bg-purple-700 transition">حفظ</button>
+            <button type="submit" className="bg-purple-600 text-white px-4 py-2 rounded-lg font-bold w-fit text-xs hover:bg-purple-700 transition mt-2">حفظ النص والأسئلة</button>
           </form>
         </div>
       )}
 
       <div className="grid grid-cols-3 gap-3 mb-4">
-        <div className="bg-white/70 p-3 rounded-xl shadow-sm">
+        <div className="bg-white/80 p-3 rounded-xl shadow-sm">
           <h3 className="text-[10px] font-bold text-purple-700 uppercase">إجمالي الجلسات</h3>
           <p className="text-xl font-extrabold text-indigo-600 mt-1">{sessions.length}</p>
         </div>
-        <div className="bg-white/70 p-3 rounded-xl shadow-sm">
+        <div className="bg-white/80 p-3 rounded-xl shadow-sm">
           <h3 className="text-[10px] font-bold text-pink-700 uppercase">متوسط الدقة</h3>
           <p className="text-xl font-extrabold text-pink-600 mt-1">{sessions.length > 0 ? (sessions.reduce((acc: number, s: any) => acc + s.accuracy_percent, 0) / sessions.length).toFixed(1) : 0}%</p>
         </div>
-        <div className="bg-white/70 p-3 rounded-xl shadow-sm">
+        <div className="bg-white/80 p-3 rounded-xl shadow-sm">
           <h3 className="text-[10px] font-bold text-cyan-700 uppercase">متوسط السرعة</h3>
           <p className="text-xl font-extrabold text-cyan-600 mt-1">{sessions.length > 0 ? Math.round(sessions.reduce((acc: number, s: any) => acc + s.wpm, 0) / sessions.length) : 0} <span className="text-[10px] text-purple-400">WPM</span></p>
         </div>
       </div>
 
-      <div className="bg-white/70 p-4 rounded-xl shadow-sm mb-4">
+      <div className="bg-white/80 p-4 rounded-xl shadow-sm mb-4">
         <h2 className="text-sm font-bold mb-2 text-purple-900">رسم بياني لأداء الطلاب</h2>
         <div className="w-full h-40" dir="rtl">
           <ResponsiveContainer width="100%" height="100%">
@@ -145,11 +149,11 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="bg-white/70 p-4 rounded-xl shadow-sm">
+      <div className="bg-white/80 p-4 rounded-xl shadow-sm">
         <h2 className="text-sm font-bold mb-2 text-purple-900">سجل جلسات الطلاب</h2>
-       <div className="overflow-x-hidden w-full" dir="rtl">
-          <table className="w-full text-right border-collapse table-fixed">
-                  <thead>
+        <div className="overflow-x-auto w-full" dir="rtl">
+          <table className="w-full text-right border-collapse">
+            <thead>
               <tr className="border-b border-purple-100">
                 <th className="py-2 px-2 text-[10px] font-bold text-purple-700">الطالب</th>
                 <th className="py-2 px-2 text-[10px] font-bold text-purple-700">الدقة</th>
@@ -159,33 +163,34 @@ export default function Dashboard() {
                 <th className="py-2 px-2 text-[10px] font-bold text-purple-700">النص والصوت</th>
               </tr>
             </thead>
-                    <tbody>
+            <tbody>
               {sessions.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="py-6 text-center text-purple-400 text-xs">لا توجد بيانات حالياً.</td>
-                </tr>
+                <tr><td colSpan={6} className="py-6 text-center text-purple-400 text-xs">لا توجد بيانات حالياً.</td></tr>
               ) : (
-                sessions.map((session: any) => (
-                  <tr key={session.session_id} className="border-b border-purple-50 hover:bg-white/60 align-top">
-                    <td className="py-2 px-2 font-bold text-purple-900 text-xs whitespace-nowrap">{session.student_username}</td>
-                    <td className="py-2 px-2">
-                      <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${session.accuracy_percent > 85 ? 'bg-emerald-100 text-emerald-700' : session.accuracy_percent > 60 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
-                        {session.accuracy_percent}%
-                      </span>
-                    </td>
-                    <td className="py-2 px-2 text-purple-600 font-bold text-xs whitespace-nowrap">{session.wpm} <span className="text-[10px] text-purple-300">WPM</span></td>
-                    <td className="py-2 px-2"><span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-700">{session.comprehension_score}</span></td>
-                    <td className="py-2 px-2 text-red-500 max-w-[120px] text-[10px] leading-relaxed break-words">{session.error_tags}</td>
-                    <td className="py-2 px-2 text-purple-500 max-w-[250px] text-[10px] leading-relaxed break-words">
-                      <div className="bg-white/60 rounded-md p-1.5 border border-purple-50">
-                        <p className="italic mb-1">"{session.asr_transcript}"</p>
-                        {session.audio_file_id && (
-                          <audio controls src={session.audio_file_id} className="w-full h-6 mt-1">Your browser does not support the audio element.</audio>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                sessions.map((session: any) => {
+                  const accColor = session.accuracy_percent > 85 ? 'bg-emerald-100 text-emerald-700' : session.accuracy_percent > 60 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700';
+                  return (
+                    <tr key={session.session_id} className="border-b border-purple-50 hover:bg-white/60 align-top">
+                      <td className="py-2 px-2 font-bold text-purple-900 text-xs whitespace-nowrap">{session.student_username}</td>
+                      <td className="py-2 px-2">
+                        <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${accColor}`}>
+                          {session.accuracy_percent}%
+                        </span>
+                      </td>
+                      <td className="py-2 px-2 text-purple-600 font-bold text-xs whitespace-nowrap">{session.wpm} <span className="text-[10px] text-purple-300">WPM</span></td>
+                      <td className="py-2 px-2"><span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-700">{session.comprehension_score}</span></td>
+                      <td className="py-2 px-2 text-red-500 max-w-[120px] text-[10px] leading-relaxed">{session.error_tags}</td>
+                      <td className="py-2 px-2 text-purple-500 max-w-[250px] text-[10px] leading-relaxed">
+                        <div className="bg-white/60 rounded-md p-1.5 border border-purple-50">
+                          <p className="italic mb-1">"{session.asr_transcript}"</p>
+                          {session.audio_file_id && (
+                            <audio controls src={session.audio_file_id} className="w-full h-6 mt-1">Your browser does not support the audio element.</audio>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })
               )}
             </tbody>
           </table>
