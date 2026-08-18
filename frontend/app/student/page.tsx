@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from 'react'
 import axios from 'axios'
 
 export default function StudentReadingPage() {
-  const [phase, setPhase] = useState<'select' | 'reading' | 'quiz' | 'done'>('select')
+  const [phase, setPhase] = useState<'select' | 'reading' | 'quiz' | 'done' | 'practice'>('select')
   const [passages, setPassages] = useState([])
   const [selectedPassage, setSelectedPassage] = useState<any>(null)
   
@@ -18,6 +18,12 @@ export default function StudentReadingPage() {
   const [ans1, setAns1] = useState('')
   const [ans2, setAns2] = useState('')
   const [wordAnalysis, setWordAnalysis] = useState<any[]>([])
+  
+  // NEW: Practice state
+  const [practiceQuestions, setPracticeQuestions] = useState<any[]>([])
+  const [practiceAnswers, setPracticeAnswers] = useState<string[]>([])
+  const [practiceLoading, setPracticeLoading] = useState(false)
+  const [errorWords, setErrorWords] = useState<string[]>([])
 
   useEffect(() => {
     const token = localStorage.getItem('token')
@@ -79,10 +85,38 @@ export default function StudentReadingPage() {
       })
       setStatus(`تم التقييم! الدقة: ${res.data.accuracy}%`)
       setWordAnalysis(res.data.word_analysis)
+      
+      // Save incorrect words for the practice phase
+      const mistakes = res.data.word_analysis.filter((w: any) => w.status !== 'correct').map((w: any) => w.word)
+      setErrorWords(mistakes)
+      
       setPhase('done')
     } catch (err) {
       setStatus('حدث خطأ أثناء الإرسال.')
       setIsSubmitting(false)
+    }
+  }
+
+  // NEW: Generate AI Practice Questions
+  const startPractice = async () => {
+    if (errorWords.length === 0) {
+      alert('أحسنت! ليس لديك أخطاء للتدرب عليها.')
+      return
+    }
+    setPracticeLoading(true)
+    setPhase('practice')
+    const token = localStorage.getItem('token')
+    try {
+      const res = await axios.post('https://reading-ai-platform.onrender.com/api/intervention/generate', 
+        { errors: errorWords }, 
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+      setPracticeQuestions(res.data.questions || [])
+    } catch (err) {
+      alert('تعذر توليد أسئلة التدريب حالياً.')
+      setPhase('done')
+    } finally {
+      setPracticeLoading(false)
     }
   }
 
@@ -171,8 +205,57 @@ export default function StudentReadingPage() {
                   <button key={idx} onClick={() => speakWord(item.word)} className={`px-3 py-1 rounded-lg text-lg font-medium transition hover:scale-105 ${item.status === 'correct' ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-red-100 text-red-700 hover:bg-red-200'}`}>{item.word} 🔊</button>
                 ))}
               </div>
-              <p className="text-xs text-gray-500 mt-4 text-center">اضغط على الكلمة للاستماع إلى نطقها الصحيح</p>
             </div>
+            
+            {/* NEW: Start Practice Button */}
+            {errorWords.length > 0 && (
+              <button onClick={startPractice} className="bg-gradient-to-r from-amber-500 to-orange-500 text-white px-8 py-3 rounded-2xl font-bold shadow-lg hover:scale-105 transition mt-4">
+                🧠 تدرب على أخطائك
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* NEW: Practice Phase */}
+        {phase === 'practice' && (
+          <div className="text-center py-8">
+            <h2 className="text-2xl font-bold text-purple-700 mb-6">تمرين العلاج الذكي 🤖</h2>
+            {practiceLoading ? (
+              <p className="text-purple-600 font-bold animate-pulse">جارٍ توليد أسئلة التدريب بالذكاء الاصطناعي...</p>
+            ) : practiceQuestions.length > 0 ? (
+              <div className="flex flex-col gap-8 text-right">
+                {practiceQuestions.map((q, idx) => (
+                  <div key={idx}>
+                    <p className="font-bold mb-3 text-purple-800">{idx + 1}. {q.question}</p>
+                    <div className="flex gap-4 flex-wrap">
+                      {q.options.map((opt: string, i: number) => (
+                        <button 
+                          key={i} 
+                          onClick={() => {
+                            const newAnswers = [...practiceAnswers]
+                            newAnswers[idx] = opt
+                            setPracticeAnswers(newAnswers)
+                          }} 
+                          className={`px-5 py-2 rounded-xl border ${practiceAnswers[idx] === opt ? 'bg-purple-600 text-white' : 'bg-white/50'}`}
+                        >
+                          {opt}
+                        </button>
+                      ))}
+                    </div>
+                    {practiceAnswers[idx] && (
+                      <p className={`mt-2 text-sm font-bold ${practiceAnswers[idx] === q.answer ? 'text-emerald-600' : 'text-red-500'}`}>
+                        {practiceAnswers[idx] === q.answer ? '✅ إجابة صحيحة!' : `❌ الإجابة الصحيحة: ${q.answer}`}
+                      </p>
+                    )}
+                  </div>
+                ))}
+                <button onClick={() => setPhase('done')} className="bg-slate-800/80 text-white px-8 py-3 rounded-2xl font-bold hover:bg-slate-700 transition mt-4 self-center">
+                  إنهاء التمرين
+                </button>
+              </div>
+            ) : (
+              <p className="text-red-500">تعذر توليد الأسئلة.</p>
+            )}
           </div>
         )}
       </div>

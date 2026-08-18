@@ -201,6 +201,50 @@ async def upload_audio(audio: UploadFile = File(...), passage: str = Form(...), 
             model="whisper-large-v3",
             language="ar"
         )
+        from pydantic import BaseModel
+
+class InterventionRequest(BaseModel):
+    errors: List[str]
+
+@app.post("/api/intervention/generate")
+async def generate_intervention(req: InterventionRequest, current_user: User = Depends(get_current_user)):
+    if current_user.role != "student":
+        raise HTTPException(status_code=403, detail="Students only")
+        
+    # Take up to 3 errors to keep the exercise short
+    target_words = req.errors[:3]
+    if not target_words:
+        return {"questions": []}
+
+    prompt = f"""
+    أنت معلم خبير في تعليم القراءة للطلبة الذين يعانون من صعوبات القراءة.
+    الكلمات التي أخطأ فيها الطالب هي: {', '.join(target_words)}.
+    قم بإنشاء 3 أسئلة اختيار من متعدد (MCQ) بسيطة جداً لمساعدة الطالب على التدرب على هذه الكلمات.
+    يجب أن يحتوي كل سؤال على نص السؤال، وثلاثة خيارات، والإجابة الصحيحة.
+    أرجع النتيجة بصيغة JSON فقط بدون أي نص إضافي:
+    {{
+      "questions": [
+        {{
+          "question": "أي كلمة تبدأ بحرف ...؟",
+          "options": ["كلمة1", "كلمة2", "كلمة3"],
+          "answer": "الإجابة الصحيحة"
+        }}
+      ]
+    }}
+    """
+
+    try:
+        response = groq_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            response_format={"type": "json_object"},
+            messages=[{"role": "user", "content": prompt}]
+        )
+        import json
+        data = json.loads(response.choices[0].message.content)
+        return data
+    except Exception as e:
+        print("Intervention Error:", e)
+        raise HTTPException(status_code=500, detail="Failed to generate practice questions")
     raw_transcript = transcription.text.strip()
     
     if os.path.exists(temp_file_name):
