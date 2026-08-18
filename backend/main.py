@@ -1,195 +1,268 @@
-'use client'
+from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException, status, Query
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.responses import StreamingResponse, FileResponse
+from passlib.context import CryptContext
+from jose import JWTError, jwt
+from sqlalchemy.orm import Session
+from database import Base, engine, SessionLocal, User, ResearchSession, Passage, get_db
+from groq import Groq
+import datetime
+import difflib
+import re
+import csv
+import io
+import os
+from typing import List
+from pydantic import BaseModel
+import requests
 
-import { useEffect, useState, useCallback } from 'react'
-import axios from 'axios'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
+app = FastAPI()
 
-export default function Dashboard() {
-  const [sessions, setSessions] = useState([])
-  const [loading, setLoading] = useState(false)
-  
-  const [newPassage, setNewPassage] = useState('')
-  const [q1, setQ1] = useState('')
-  const [o1a, setO1a] = useState(''); const [o1b, setO1b] = useState(''); const [o1c, setO1c] = useState(''); const [a1, setA1] = useState('')
-  const [q2, setQ2] = useState('')
-  const [o2a, setO2a] = useState(''); const [o2b, setO2b] = useState(''); const [o2c, setO2c] = useState(''); const [a2, setA2] = useState('')
-  
-  const [showPassageForm, setShowPassageForm] = useState(false)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], 
+    allow_credentials=False, 
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-  const fetchSessions = useCallback(async () => {
-    const token = localStorage.getItem('token')
-    if (!token) return window.location.href = '/login'
-    setLoading(true)
-    try {
-      const res = await axios.get('https://reading-ai-platform.onrender.com/api/sessions', { headers: { Authorization: `Bearer ${token}` } })
-      setSessions(res.data)
-    } catch (err: any) {
-      if (err.response?.status === 401) window.location.href = '/login'
-    } finally { setLoading(false) }
-  }, [])
+SECRET_KEY = "YOUR_SUPER_SECRET_KEY_12345_KEEP_IT_SAFE"
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
-  useEffect(() => {
-    fetchSessions()
-    const interval = setInterval(fetchSessions, 5000)
-    return () => clearInterval(interval)
-  }, [fetchSessions])
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
-  const handleExport = async () => {
-    const token = localStorage.getItem('token')
-    try {
-      const res = await axios.get('https://reading-ai-platform.onrender.com/api/sessions/export', { headers: { Authorization: `Bearer ${token}` }, responseType: 'blob' })
-      const url = window.URL.createObjectURL(new Blob([res.data]))
-      const link = document.createElement('a')
-      link.href = url
-      link.setAttribute('download', 'research_data.csv')
-      document.body.appendChild(link)
-      link.click(); link.remove()
-    } catch (err) { alert('Failed to export data') }
-  }
+groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+print("Groq Client initialized successfully!")
 
-  const handleAddPassage = async (e: React.FormEvent) => {
-    e.preventDefault()
-    const token = localStorage.getItem('token')
-    try {
-      const params = new URLSearchParams()
-      params.append('text', newPassage)
-      params.append('level', 'متوسط')
-      params.append('question1', q1); params.append('option1a', o1a); params.append('option1b', o1b); params.append('option1c', o1c); params.append('answer1', a1)
-      params.append('question2', q2); params.append('option2a', o2a); params.append('option2b', o2b); params.append('option2c', o2c); params.append('answer2', a2)
+def normalize_arabic(text):
+    text = re.sub(r'[\u0617-\u061A\u064B-\u0652]', '', text)
+    text = re.sub(r'[^\w\s]', '', text)
+    text = re.sub(r'[إأآا]', 'ا', text)
+    text = re.sub(r'ى', 'ي', text)
+    text = re.sub(r'ة', 'ه', text)
+    return text
 
-      await axios.post('https://reading-ai-platform.onrender.com/api/passages', params, { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/x-www-form-urlencoded' } })
-      
-      setNewPassage(''); setQ1(''); setO1a(''); setO1b(''); setO1c(''); setA1(''); setQ2(''); setO2a(''); setO2b(''); setO2c(''); setA2('')
-      setShowPassageForm(false)
-      alert('تم إضافة النص والأسئلة بنجاح!')
-    } catch (err: any) {
-      alert(err.response?.data?.detail || 'Failed to add passage')
+def create_access_token(data: dict):
+    to_encode = data.copy()
+    expire = datetime.datetime.utcnow() + datetime.timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    credentials_exception = HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None: raise credentials_exception
+    except JWTError: raise credentials_exception
+    user = db.query(User).filter(User.username == username).first()
+    if user is None: raise credentials_exception
+    return user
+
+def upload_to_supabase(file_path, file_name):
+    supabase_url = os.environ.get("SUPABASE_URL")
+    supabase_key = os.environ.get("SUPABASE_KEY")
+    
+    with open(file_path, "rb") as f:
+        file_data = f.read()
+        
+    headers = {
+        "apikey": supabase_key,
+        "Authorization": f"Bearer {supabase_key}",
+        "Content-Type": "audio/webm"
     }
-  }
+    
+    upload_url = f"{supabase_url}/storage/v1/object/audio-files/{file_name}"
+    response = requests.post(upload_url, headers=headers, data=file_data)
+    
+    if response.status_code == 200:
+        public_url = f"{supabase_url}/storage/v1/object/public/audio-files/{file_name}"
+        return public_url
+    else:
+        print("Supabase Upload Error:", response.text)
+        return None
 
-  const chartData = sessions.map((s: any) => ({ name: s.student_username, accuracy: s.accuracy_percent, wpm: s.wpm }))
+@app.post("/auth/register")
+def register_user(username: str = Form(...), password: str = Form(...), role: str = Form(...), doctor_username: str = Form(None), current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if current_user.role != "admin": raise HTTPException(status_code=403, detail="Admin only")
+    if db.query(User).filter(User.username == username).first(): raise HTTPException(status_code=400, detail="Username exists")
+    new_user = User(username=username, hashed_password=pwd_context.hash(password), role=role)
+    if role == "student" and doctor_username:
+        doctor = db.query(User).filter(User.username == doctor_username, User.role == "doctor").first()
+        if not doctor: raise HTTPException(status_code=404, detail="Doctor not found")
+        new_user.doctor_id = doctor.id
+    db.add(new_user)
+    db.commit()
+    return {"message": "User registered"}
 
-  return (
-    <div className="p-4 md:p-6 max-w-6xl mx-auto">
-      <header className="mb-4 flex justify-between items-center">
-        <div>
-          <h1 className="text-xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-pink-600 tracking-tight">لوحة تحكم الدكتورة</h1>
-          <p className="text-purple-500 text-xs font-medium">نظرة شاملة على أداء الطلاب</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button onClick={() => setShowPassageForm(!showPassageForm)} className="bg-white/50 border border-white/60 text-purple-700 px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-white/80 transition">➕ إضافة نص</button>
-          <button onClick={handleExport} className="bg-gradient-to-r from-emerald-500 to-cyan-500 text-white px-3 py-1.5 rounded-lg font-bold text-xs shadow hover:scale-105 transition">⬇️ Excel</button>
-        </div>
-      </header>
+@app.get("/auth/doctors")
+def get_doctors(db: Session = Depends(get_db)):
+    return [{"id": d.id, "username": d.username} for d in db.query(User).filter(User.role == "doctor").all()]
 
-      {showPassageForm && (
-        <div className="bg-white/70 border border-purple-200 p-4 rounded-xl shadow-lg mb-4">
-          <h3 className="text-base font-bold text-purple-900 mb-3">إضافة نص قرائي وأسئلة</h3>
-          <form onSubmit={handleAddPassage} className="flex flex-col gap-3">
-            <textarea value={newPassage} onChange={(e) => setNewPassage(e.target.value)} placeholder="اكتب النص هنا..." className="p-2 rounded-lg bg-white border border-purple-100 focus:ring-1 focus:ring-purple-400 h-16 text-xs" required />
-            
-            <div className="border-t pt-2">
-              <h4 className="font-bold text-purple-800 text-sm mb-2">السؤال الأول</h4>
-              <input value={q1} onChange={(e) => setQ1(e.target.value)} placeholder="نص السؤال" className="w-full p-1.5 mb-2 rounded-md bg-white border border-purple-100 text-xs" required />
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                <input value={o1a} onChange={(e) => setO1a(e.target.value)} placeholder="الخيار 1" className="p-1.5 rounded-md bg-white border border-purple-100 text-xs" required />
-                <input value={o1b} onChange={(e) => setO1b(e.target.value)} placeholder="الخيار 2" className="p-1.5 rounded-md bg-white border border-purple-100 text-xs" required />
-                <input value={o1c} onChange={(e) => setO1c(e.target.value)} placeholder="الخيار 3" className="p-1.5 rounded-md bg-white border border-purple-100 text-xs" required />
-                <input value={a1} onChange={(e) => setA1(e.target.value)} placeholder="الإجابة الصحيحة" className="p-1.5 rounded-md bg-emerald-50 border border-emerald-200 text-xs" required />
-              </div>
-            </div>
+@app.post("/auth/login")
+def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.username == form_data.username).first()
+    if not user or not pwd_context.verify(form_data.password, user.hashed_password):
+        raise HTTPException(status_code=400, detail="Incorrect username or password")
+    return {"access_token": create_access_token(data={"sub": user.username, "role": user.role, "id": user.id}), "token_type": "bearer", "role": user.role, "username": user.username}
 
-            <div className="border-t pt-2">
-              <h4 className="font-bold text-purple-800 text-sm mb-2">السؤال الثاني</h4>
-              <input value={q2} onChange={(e) => setQ2(e.target.value)} placeholder="نص السؤال" className="w-full p-1.5 mb-2 rounded-md bg-white border border-purple-100 text-xs" required />
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                <input value={o2a} onChange={(e) => setO2a(e.target.value)} placeholder="الخيار 1" className="p-1.5 rounded-md bg-white border border-purple-100 text-xs" required />
-                <input value={o2b} onChange={(e) => setO2b(e.target.value)} placeholder="الخيار 2" className="p-1.5 rounded-md bg-white border border-purple-100 text-xs" required />
-                <input value={o2c} onChange={(e) => setO2c(e.target.value)} placeholder="الخيار 3" className="p-1.5 rounded-md bg-white border border-purple-100 text-xs" required />
-                <input value={a2} onChange={(e) => setA2(e.target.value)} placeholder="الإجابة الصحيحة" className="p-1.5 rounded-md bg-emerald-50 border border-emerald-200 text-xs" required />
-              </div>
-            </div>
+@app.post("/api/passages")
+def create_passage(
+    text: str = Form(...), 
+    level: str = Form("متوسط"),
+    question1: str = Form(None), option1a: str = Form(None), option1b: str = Form(None), option1c: str = Form(None), answer1: str = Form(None),
+    question2: str = Form(None), option2a: str = Form(None), option2b: str = Form(None), option2c: str = Form(None), answer2: str = Form(None),
+    current_user: User = Depends(get_current_user), db: Session = Depends(get_db)
+):
+    if current_user.role not in ["doctor", "admin"]: raise HTTPException(status_code=403, detail="Doctors only")
+    passage = Passage(
+        text=text, level=level, created_by=current_user.id,
+        question1=question1, option1a=option1a, option1b=option1b, option1c=option1c, answer1=answer1,
+        question2=question2, option2a=option2a, option2b=option2b, option2c=option2c, answer2=answer2
+    )
+    db.add(passage)
+    db.commit()
+    db.refresh(passage)
+    return {"message": "Passage created", "id": passage.id}
 
-            <button type="submit" className="bg-purple-600 text-white px-4 py-1.5 rounded-lg font-bold w-fit text-xs hover:bg-purple-700 transition">حفظ</button>
-          </form>
-        </div>
-      )}
+@app.get("/api/passages")
+def get_passages(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if current_user.role == "doctor":
+        return db.query(Passage).filter(Passage.created_by == current_user.id).all()
+    elif current_user.role == "student":
+        doctor = db.query(User).filter(User.id == current_user.doctor_id).first()
+        if doctor: return db.query(Passage).filter(Passage.created_by == doctor.id).all()
+    return db.query(Passage).all()
 
-      <div className="grid grid-cols-3 gap-3 mb-4">
-        <div className="bg-white/70 p-3 rounded-xl shadow-sm">
-          <h3 className="text-[10px] font-bold text-purple-700 uppercase">إجمالي الجلسات</h3>
-          <p className="text-xl font-extrabold text-indigo-600 mt-1">{sessions.length}</p>
-        </div>
-        <div className="bg-white/70 p-3 rounded-xl shadow-sm">
-          <h3 className="text-[10px] font-bold text-pink-700 uppercase">متوسط الدقة</h3>
-          <p className="text-xl font-extrabold text-pink-600 mt-1">{sessions.length > 0 ? (sessions.reduce((acc: number, s: any) => acc + s.accuracy_percent, 0) / sessions.length).toFixed(1) : 0}%</p>
-        </div>
-        <div className="bg-white/70 p-3 rounded-xl shadow-sm">
-          <h3 className="text-[10px] font-bold text-cyan-700 uppercase">متوسط السرعة</h3>
-          <p className="text-xl font-extrabold text-cyan-600 mt-1">{sessions.length > 0 ? Math.round(sessions.reduce((acc: number, s: any) => acc + s.wpm, 0) / sessions.length) : 0} <span className="text-[10px] text-purple-400">WPM</span></p>
-        </div>
-      </div>
+@app.get("/api/sessions")
+def get_sessions(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    query = db.query(ResearchSession, User.username).join(User, ResearchSession.student_id == User.id)
+    if current_user.role == "doctor": query = query.filter(ResearchSession.doctor_id == current_user.id)
+    elif current_user.role == "student": query = query.filter(ResearchSession.student_id == current_user.id)
+    results = query.all()
+    sessions_list = []
+    for session, student_username in results:
+        session_dict = {c.name: getattr(session, c.name) for c in session.__table__.columns}
+        session_dict['student_username'] = student_username
+        sessions_list.append(session_dict)
+    return sessions_list
 
-      <div className="bg-white/70 p-4 rounded-xl shadow-sm mb-4">
-        <h2 className="text-sm font-bold mb-2 text-purple-900">رسم بياني لأداء الطلاب</h2>
-        <div className="w-full h-40" dir="rtl">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e9d5ff" vertical={false} />
-              <XAxis dataKey="name" tick={{ fill: '#7e22ce', fontSize: 10 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: '#7e22ce', fontSize: 10 }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={{ background: 'rgba(255,255,255,0.9)', border: '1px solid #d8b4fe', borderRadius: '8px', fontSize: '10px' }} />
-              <Bar dataKey="accuracy" fill="#8b5cf6" name="الدقة %" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="wpm" fill="#ec4899" name="السرعة" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
+@app.post("/api/sessions/upload")
+async def upload_audio(audio: UploadFile = File(...), passage: str = Form(...), comprehension_score: str = Form("0/2"), current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if current_user.role != "student": raise HTTPException(status_code=403, detail="Students only")
+    
+    temp_file_name = f"audio_{datetime.datetime.now().timestamp()}.webm"
+    with open(temp_file_name, "wb") as f: f.write(await audio.read())
+    
+    audio_url = upload_to_supabase(temp_file_name, temp_file_name)
+    
+    with open(temp_file_name, "rb") as file:
+        transcription = groq_client.audio.transcriptions.create(
+            file=(temp_file_name, file.read()),
+            model="whisper-large-v3",
+            language="ar"
+        )
+    raw_transcript = transcription.text.strip()
+    
+    if os.path.exists(temp_file_name):
+        os.remove(temp_file_name)
+        
+    matcher = difflib.SequenceMatcher(None, normalize_arabic(passage).replace(" ", ""), normalize_arabic(raw_transcript).replace(" ", ""))
+    accuracy = round(matcher.ratio() * 100, 2)
+    
+    original_words = normalize_arabic(passage).split()
+    spoken_words = normalize_arabic(raw_transcript).split()
+    word_matcher = difflib.SequenceMatcher(None, original_words, spoken_words)
+    
+    errors = []
+    word_analysis = []
+    
+    for tag, i1, i2, j1, j2 in word_matcher.get_opcodes():
+        if tag == 'equal':
+            for word in original_words[i1:i2]:
+                word_analysis.append({"word": word, "status": "correct"})
+        elif tag == 'delete':
+            for word in original_words[i1:i2]:
+                errors.append(word)
+                word_analysis.append({"word": word, "status": "missing"})
+        elif tag == 'replace':
+            for word in original_words[i1:i2]:
+                errors.append(word)
+                word_analysis.append({"word": word, "status": "incorrect"})
+    
+    new_session = ResearchSession(
+        session_id=f"SES-{datetime.datetime.now().timestamp()}", student_id=current_user.id, doctor_id=current_user.doctor_id,
+        age_range="8-10", grade="4", passage_id="PASS", passage_level="متوسط", 
+        audio_file_id=audio_url, 
+        asr_transcript=raw_transcript, error_tags=";".join(errors) or "لا توجد أخطاء",
+        wpm=int(len(spoken_words) / 0.5), accuracy_percent=accuracy, comprehension_score=comprehension_score,
+        duration_seconds=30, consent_given=True
+    )
+    db.add(new_session)
+    db.commit()
+    
+    return {
+        "accuracy": accuracy, 
+        "transcript": raw_transcript,
+        "word_analysis": word_analysis
+    }
 
-      <div className="bg-white/70 p-4 rounded-xl shadow-sm">
-        <h2 className="text-sm font-bold mb-2 text-purple-900">سجل جلسات الطلاب</h2>
-        <div className="overflow-x-auto w-full" dir="rtl">
-          <table className="w-full text-right border-collapse">
-            <thead>
-              <tr className="border-b border-purple-100">
-                <th className="py-2 px-2 text-[10px] font-bold text-purple-700">الطالب</th>
-                <th className="py-2 px-2 text-[10px] font-bold text-purple-700">الدقة</th>
-                <th className="py-2 px-2 text-[10px] font-bold text-purple-700">السرعة</th>
-                <th className="py-2 px-2 text-[10px] font-bold text-purple-700">الفهم</th>
-                <th className="py-2 px-2 text-[10px] font-bold text-purple-700">الأخطاء</th>
-                <th className="py-2 px-2 text-[10px] font-bold text-purple-700">النص والصوت</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sessions.length === 0 ? (
-                <tr><td colSpan={6} className="py-6 text-center text-purple-400 text-xs">لا توجد بيانات حالياً.</td></tr>
-              ) : (
-                sessions.map((session: any) => (
-                  <tr key={session.session_id} className="border-b border-purple-50 hover:bg-white/60 align-top">
-                    <td className="py-2 px-2 font-bold text-purple-900 text-xs whitespace-nowrap">{session.student_username}</td>
-                    <td className="py-2 px-2">
-                      <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${session.accuracy_percent > 85 ? 'bg-emerald-100 text-emerald-700' : session.accuracy_percent > 60 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
-                        {session.accuracy_percent}%
-                      </span>
-                    </td>
-                    <td className="py-2 px-2 text-purple-600 font-bold text-xs whitespace-nowrap">{session.wpm} <span className="text-[10px] text-purple-300">WPM</span></td>
-                    <td className="py-2 px-2"><span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-700">{session.comprehension_score}</span></td>
-                    <td className="py-2 px-2 text-red-500 max-w-[120px] text-[10px] leading-relaxed break-words">{session.error_tags}</td>
-                    <td className="py-2 px-2 text-purple-500 max-w-[250px] text-[10px] leading-relaxed break-words">
-                      <div className="bg-white/60 rounded-md p-1.5 border border-purple-50">
-                        <p className="italic mb-1">"{session.asr_transcript}"</p>
-                        {session.audio_file_id && (
-                          <audio controls src={session.audio_file_id} className="w-full h-6 mt-1">Your browser does not support the audio element.</audio>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  )
-}
+@app.get("/api/sessions/export")
+def export_sessions(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if current_user.role not in ["doctor", "admin"]: raise HTTPException(status_code=403, detail="Doctors/Admins only")
+    query = db.query(ResearchSession, User.username).join(User, ResearchSession.student_id == User.id)
+    if current_user.role == "doctor": query = query.filter(ResearchSession.doctor_id == current_user.id)
+    
+    output = io.StringIO()
+    output.write('\ufeff') 
+    writer = csv.writer(output)
+    writer.writerow(["Student", "Date", "WPM", "Accuracy (%)", "Comprehension", "Errors", "AI Transcript"])
+    
+    for session, student_username in query.all():
+        writer.writerow([student_username, session.session_date, session.wpm, session.accuracy_percent, session.comprehension_score, session.error_tags, session.asr_transcript])
+    
+    output.seek(0)
+    return StreamingResponse(output, media_type="text/csv", headers={"Content-Disposition": "attachment; filename=research_data.csv"})
+
+@app.get("/api/audio/{filename}")
+async def get_audio(filename: str, token: str = Query(...), db: Session = Depends(get_db)):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None: raise HTTPException(status_code=401, detail="Invalid token")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+        
+    user = db.query(User).filter(User.username == username).first()
+    if not user or user.role not in ["doctor", "admin"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+        
+    if ".." in filename or "/" in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    
+    file_path = filename
+    if os.path.exists(file_path):
+        return FileResponse(path=file_path, media_type="audio/webm")
+    raise HTTPException(status_code=404, detail="Audio file not found")
+
+@app.get("/api/users")
+def get_all_users(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if current_user.role != "admin": raise HTTPException(status_code=403, detail="Admin only")
+    return db.query(User).all()
+
+@app.delete("/api/users/{user_id}")
+def delete_user(user_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if current_user.role != "admin": raise HTTPException(status_code=403, detail="Admin only")
+    user = db.query(User).filter(User.id == user_id).first()
+    if user: db.delete(user); db.commit()
+    return {"message": "Deleted"}
+
+@app.put("/api/users/{user_id}/reset-password")
+def reset_password(user_id: int, new_password: str = Form(...), current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if current_user.role != "admin": raise HTTPException(status_code=403, detail="Admin only")
+    user = db.query(User).filter(User.id == user_id).first()
+    if user: user.hashed_password = pwd_context.hash(new_password); db.commit()
+    return {"message": "Reset"}
