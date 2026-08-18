@@ -86,7 +86,6 @@ def upload_to_supabase(file_path, file_name):
         print("Supabase Upload Error:", response.text)
         return None
 
-# --- Auth Routes ---
 @app.post("/auth/register")
 def register_user(username: str = Form(...), password: str = Form(...), role: str = Form(...), doctor_username: str = Form(None), current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     if current_user.role != "admin": raise HTTPException(status_code=403, detail="Admin only")
@@ -113,7 +112,7 @@ async def register_bulk_users(file: UploadFile = File(...), current_user: User =
     errors = []
     
     for i, row in enumerate(reader):
-        if i == 0 or len(row) < 3: continue # Skip header or invalid rows
+        if i == 0 or len(row) < 3: continue
             
         username, password, doctor_username = row[0].strip(), row[1].strip(), row[2].strip()
         
@@ -144,7 +143,6 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
         raise HTTPException(status_code=400, detail="Incorrect username or password")
     return {"access_token": create_access_token(data={"sub": user.username, "role": user.role, "id": user.id}), "token_type": "bearer", "role": user.role, "username": user.username}
 
-# --- Passage Routes ---
 @app.post("/api/passages")
 def create_passage(
     text: str = Form(...), 
@@ -173,7 +171,6 @@ def get_passages(current_user: User = Depends(get_current_user), db: Session = D
         if doctor: return db.query(Passage).filter(Passage.created_by == doctor.id).all()
     return db.query(Passage).all()
 
-# --- Session Routes ---
 @app.get("/api/sessions")
 def get_sessions(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     query = db.query(ResearchSession, User.username).join(User, ResearchSession.student_id == User.id)
@@ -214,24 +211,28 @@ async def upload_audio(audio: UploadFile = File(...), passage: str = Form(...), 
     spoken_words = normalize_arabic(raw_transcript).split()
     word_matcher = difflib.SequenceMatcher(None, original_words, spoken_words)
     
+    # NEW: Categorized Errors (Miscue Analysis)
     errors = []
     word_analysis = []
     
     for tag, i1, i2, j1, j2 in word_matcher.get_opcodes():
         if tag == 'equal':
             for word in original_words[i1:i2]:
-                word_analysis.append({"word": word, "status": "correct"})
-        elif tag == 'delete':
+                word_analysis.append({"word": word, "status": "correct", "type": "none"})
+        elif tag == 'delete': # Word was skipped
             for word in original_words[i1:i2]:
-                errors.append(word)
-                word_analysis.append({"word": word, "status": "missing"})
-        elif tag == 'replace':
+                errors.append(f"حذف:{word}")
+                word_analysis.append({"word": word, "status": "missing", "type": "حذف"})
+        elif tag == 'replace': # Word was mispronounced
             for word in original_words[i1:i2]:
-                errors.append(word)
-                word_analysis.append({"word": word, "status": "incorrect"})
+                errors.append(f"إبدال:{word}")
+                word_analysis.append({"word": word, "status": "incorrect", "type": "إبدال"})
+        elif tag == 'insert': # Extra word was added
+            for word in spoken_words[j1:j2]:
+                errors.append(f"إضافة:{word}")
+                word_analysis.append({"word": word, "status": "extra", "type": "إضافة"})
     
-        # NEW: Calculate Stars
-    stars = 1 # Base star for completing
+    stars = 1 
     if accuracy >= 75: stars += 1
     if comprehension_score == "2/2": stars += 1
 
@@ -239,10 +240,11 @@ async def upload_audio(audio: UploadFile = File(...), passage: str = Form(...), 
         session_id=f"SES-{datetime.datetime.now().timestamp()}", student_id=current_user.id, doctor_id=current_user.doctor_id,
         age_range="8-10", grade="4", passage_id="PASS", passage_level="متوسط", 
         audio_file_id=audio_url, 
-        asr_transcript=raw_transcript, error_tags=";".join(errors) or "لا توجد أخطاء",
+        asr_transcript=raw_transcript, 
+        error_tags=";".join(errors) or "لا توجد أخطاء",
         wpm=int(len(spoken_words) / 0.5), accuracy_percent=accuracy, comprehension_score=comprehension_score,
         duration_seconds=30, consent_given=True, 
-        stars=stars # NEW: Save stars
+        stars=stars
     )
     db.add(new_session)
     db.commit()
@@ -251,50 +253,8 @@ async def upload_audio(audio: UploadFile = File(...), passage: str = Form(...), 
         "accuracy": accuracy, 
         "transcript": raw_transcript,
         "word_analysis": word_analysis,
-        "stars": stars # NEW: Return stars to frontend
+        "stars": stars
     }
-
-# --- AI Intervention Route (Smart Tutor) ---
-class InterventionRequest(BaseModel):
-    errors: List[str]
-
-@app.post("/api/intervention/generate")
-async def generate_intervention(req: InterventionRequest, current_user: User = Depends(get_current_user)):
-    if current_user.role != "student":
-        raise HTTPException(status_code=403, detail="Students only")
-        
-    target_words = req.errors[:3]
-    if not target_words:
-        return {"questions": []}
-
-    prompt = f"""
-    أنت معلم خبير في تعليم القراءة للطلبة الذين يعانون من صعوبات القراءة.
-    الكلمات التي أخطأ فيها الطالب هي: {', '.join(target_words)}.
-    قم بإنشاء 3 أسئلة اختيار من متعدد (MCQ) بسيطة جداً لمساعدة الطالب على التدرب على هذه الكلمات.
-    يجب أن يحتوي كل سؤال على نص السؤال، وثلاثة خيارات، والإجابة الصحيحة.
-    أرجع النتيجة بصيغة JSON فقط بدون أي نص إضافي:
-    {{
-      "questions": [
-        {{
-          "question": "أي كلمة تبدأ بحرف ...؟",
-          "options": ["كلمة1", "كلمة2", "كلمة3"],
-          "answer": "الإجابة الصحيحة"
-        }}
-      ]
-    }}
-    """
-
-    try:
-        response = groq_client.chat.completions.create(
-            model="llama3-70b-8192",
-            response_format={"type": "json_object"},
-            messages=[{"role": "user", "content": prompt}]
-        )
-        data = json.loads(response.choices[0].message.content)
-        return data
-    except Exception as e:
-        print("Intervention Error:", e)
-        raise HTTPException(status_code=500, detail="Failed to generate practice questions")
 
 @app.get("/api/sessions/export")
 def export_sessions(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -313,7 +273,6 @@ def export_sessions(current_user: User = Depends(get_current_user), db: Session 
     output.seek(0)
     return StreamingResponse(output, media_type="text/csv", headers={"Content-Disposition": "attachment; filename=research_data.csv"})
 
-# --- Delete Routes (Doctor/Admin) ---
 @app.delete("/api/passages/{passage_id}")
 def delete_passage(passage_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     if current_user.role not in ["doctor", "admin"]: raise HTTPException(status_code=403, detail="Doctors only")
@@ -336,7 +295,6 @@ def delete_session(session_id: str, current_user: User = Depends(get_current_use
     db.commit()
     return {"message": "Session deleted"}
 
-# --- Audio Route ---
 @app.get("/api/audio/{filename}")
 async def get_audio(filename: str, token: str = Query(...), db: Session = Depends(get_db)):
     try:
@@ -358,7 +316,6 @@ async def get_audio(filename: str, token: str = Query(...), db: Session = Depend
         return FileResponse(path=file_path, media_type="audio/webm")
     raise HTTPException(status_code=404, detail="Audio file not found")
 
-# --- Admin Routes ---
 @app.get("/api/users")
 def get_all_users(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     if current_user.role != "admin": raise HTTPException(status_code=403, detail="Admin only")
