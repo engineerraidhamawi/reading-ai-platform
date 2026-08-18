@@ -99,6 +99,39 @@ def register_user(username: str = Form(...), password: str = Form(...), role: st
     db.commit()
     return {"message": "User registered"}
 
+@app.post("/auth/register/bulk")
+async def register_bulk_users(file: UploadFile = File(...), current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    
+    contents = await file.read()
+    decoded = contents.decode('utf-8').splitlines()
+    reader = csv.reader(decoded)
+    
+    created_count = 0
+    errors = []
+    
+    for i, row in enumerate(reader):
+        if i == 0 or len(row) < 3: continue # Skip header or invalid rows
+            
+        username, password, doctor_username = row[0].strip(), row[1].strip(), row[2].strip()
+        
+        if db.query(User).filter(User.username == username).first():
+            errors.append(f"Row {i+1}: User '{username}' already exists.")
+            continue
+            
+        doctor = db.query(User).filter(User.username == doctor_username, User.role == "doctor").first()
+        if not doctor:
+            errors.append(f"Row {i+1}: Doctor '{doctor_username}' not found.")
+            continue
+            
+        new_user = User(username=username, hashed_password=pwd_context.hash(password), role="student", doctor_id=doctor.id)
+        db.add(new_user)
+        created_count += 1
+        
+    db.commit()
+    return {"message": f"Successfully created {created_count} students.", "errors": errors}
+
 @app.get("/auth/doctors")
 def get_doctors(db: Session = Depends(get_db)):
     return [{"id": d.id, "username": d.username} for d in db.query(User).filter(User.role == "doctor").all()]
