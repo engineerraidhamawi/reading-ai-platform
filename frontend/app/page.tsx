@@ -3,7 +3,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import axios from 'axios'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
-
 export default function Dashboard() {
   const [sessions, setSessions] = useState([])
   const [loading, setLoading] = useState(false)
@@ -148,9 +147,9 @@ export default function Dashboard() {
 
       <div className="bg-white/70 p-4 rounded-xl shadow-sm">
         <h2 className="text-sm font-bold mb-2 text-purple-900">سجل جلسات الطلاب</h2>
-        <div className="overflow-x-auto" dir="rtl">
-          <table className="min-w-full text-right border-collapse">
-            <thead>
+       <div className="overflow-x-hidden w-full" dir="rtl">
+          <table className="w-full text-right border-collapse table-fixed">
+                  <thead>
               <tr className="border-b border-purple-100">
                 <th className="py-2 px-2 text-[10px] font-bold text-purple-700">الطالب</th>
                 <th className="py-2 px-2 text-[10px] font-bold text-purple-700">الدقة</th>
@@ -164,7 +163,7 @@ export default function Dashboard() {
               {sessions.length === 0 ? (
                 <tr><td colSpan={6} className="py-6 text-center text-purple-400 text-xs">لا توجد بيانات حالياً.</td></tr>
               ) : (
-                sessions.map((session: any) => (
+                                sessions.map((session: any) => (
                   <tr key={session.session_id} className="border-b border-purple-50 hover:bg-white/60 align-top">
                     <td className="py-2 px-2 font-bold text-purple-900 text-xs whitespace-nowrap">{session.student_username}</td>
                     <td className="py-2 px-2">
@@ -175,7 +174,7 @@ export default function Dashboard() {
                     <td className="py-2 px-2 text-purple-600 font-bold text-xs whitespace-nowrap">{session.wpm} <span className="text-[10px] text-purple-300">WPM</span></td>
                     <td className="py-2 px-2"><span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-700">{session.comprehension_score}</span></td>
                     <td className="py-2 px-2 text-red-500 max-w-[120px] text-[10px] leading-relaxed">{session.error_tags}</td>
-                    <td className="py-2 px-2 text-purple-500 max-w-[250px] text-[10px] leading-relaxed">
+                    <td className="py-2 px-2 text-purple-500 max-w-[250px] text-[10px] leading-relaxed break-words">
                       <div className="bg-white/60 rounded-md p-1.5 border border-purple-50">
                         <p className="italic mb-1">"{session.asr_transcript}"</p>
                         {session.audio_file_id && (
@@ -185,8 +184,7 @@ export default function Dashboard() {
                     </td>
                   </tr>
                 ))
-              )}
-            </tbody>
+                  </tbody>
           </table>
         </div>
       </div>
