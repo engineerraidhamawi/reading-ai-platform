@@ -279,7 +279,7 @@ async def generate_intervention(req: InterventionRequest, current_user: User = D
 
     try:
         response = groq_client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model="llama3-70b-8192",
             response_format={"type": "json_object"},
             messages=[{"role": "user", "content": prompt}]
         )
