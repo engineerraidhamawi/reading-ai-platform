@@ -50,6 +50,19 @@ class Passage(Base):
     text = Column(Text)
     level = Column(String)
     created_by = Column(Integer, ForeignKey("users.id"))
+    
+    # NEW: Question Columns
+    question1 = Column(Text, nullable=True)
+    option1a = Column(String, nullable=True)
+    option1b = Column(String, nullable=True)
+    option1c = Column(String, nullable=True)
+    answer1 = Column(String, nullable=True)
+    
+    question2 = Column(Text, nullable=True)
+    option2a = Column(String, nullable=True)
+    option2b = Column(String, nullable=True)
+    option2c = Column(String, nullable=True)
+    answer2 = Column(String, nullable=True)
 
 Base.metadata.create_all(bind=engine)
 
