@@ -127,7 +127,10 @@ export default function StudentReadingPage() {
       utterance.rate = 0.8
       window.speechSynthesis.speak(utterance)
     }
-      const handleGoHome = () => {
+  }
+
+  // NEW: Reset state and go back to passage selection
+  const handleGoHome = () => {
     setPhase('select')
     setSelectedPassage(null)
     setAudioBlob(null)
@@ -138,7 +141,6 @@ export default function StudentReadingPage() {
     setErrorWords([])
     setPracticeQuestions([])
     setPracticeAnswers([])
-  }
   }
 
   return (
@@ -218,7 +220,8 @@ export default function StudentReadingPage() {
                 ))}
               </div>
             </div>
-                        {/* NEW: Start Practice Button */}
+            
+            {/* NEW: Start Practice Button */}
             {errorWords.length > 0 && (
               <button onClick={startPractice} className="bg-gradient-to-r from-amber-500 to-orange-500 text-white px-8 py-3 rounded-2xl font-bold shadow-lg hover:scale-105 transition mt-4">
                 🧠 تدرب على أخطائك
@@ -229,12 +232,6 @@ export default function StudentReadingPage() {
             <button onClick={handleGoHome} className="bg-slate-800/80 text-white px-8 py-3 rounded-2xl font-bold hover:bg-slate-700 transition mt-4">
               العودة لاختيار نص جديد 🏠
             </button>
-            {/* NEW: Start Practice Button */}
-            {errorWords.length > 0 && (
-              <button onClick={startPractice} className="bg-gradient-to-r from-amber-500 to-orange-500 text-white px-8 py-3 rounded-2xl font-bold shadow-lg hover:scale-105 transition mt-4">
-                🧠 تدرب على أخطائك
-              </button>
-            )}
           </div>
         )}
 
@@ -271,8 +268,8 @@ export default function StudentReadingPage() {
                     )}
                   </div>
                 ))}
-                <button onClick={() => setPhase('done')} className="bg-slate-800/80 text-white px-8 py-3 rounded-2xl font-bold hover:bg-slate-700 transition mt-4 self-center">
-                  إنهاء التمرين
+                <button onClick={handleGoHome} className="bg-slate-800/80 text-white px-8 py-3 rounded-2xl font-bold hover:bg-slate-700 transition mt-4 self-center">
+                  إنهاء التمرين والعودة للرئيسية 🏠
                 </button>
               </div>
             ) : (
