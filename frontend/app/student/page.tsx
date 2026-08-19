@@ -123,14 +123,30 @@ export default function StudentReadingPage() {
     setPhase('practice')
   }
 
-  const speakWord = (word: string) => {
-    if ('speechSynthesis' in window) {
-      const utterance = new SpeechSynthesisUtterance(word)
-      utterance.lang = 'ar-SA'
-      utterance.rate = 0.8
-      window.speechSynthesis.speak(utterance)
+   const speakWord = async (word: string) => {
+    try {
+      const formData = new FormData()
+      formData.append('text', word)
+      
+      // Call our backend to get the realistic AI voice
+      const res = await axios.post('https://reading-ai-platform.onrender.com/api/tts', formData, {
+        responseType: 'blob'
+      })
+      
+      const audioUrl = URL.createObjectURL(res.data)
+      const audio = new Audio(audioUrl)
+      audio.play()
+    } catch (err) {
+      console.error("TTS Error, falling back to browser voice", err)
+      // Fallback to browser voice if API fails
+      if ('speechSynthesis' in window) {
+        const utterance = new SpeechSynthesisUtterance(word)
+        utterance.lang = 'ar-SA'
+        utterance.rate = 0.8
+        window.speechSynthesis.speak(utterance)
+      }
     }
-  }
+   }
 
   const handleGoHome = () => {
     setPhase('select')

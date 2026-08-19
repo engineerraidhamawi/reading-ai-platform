@@ -211,7 +211,6 @@ async def upload_audio(audio: UploadFile = File(...), passage: str = Form(...), 
     spoken_words = normalize_arabic(raw_transcript).split()
     word_matcher = difflib.SequenceMatcher(None, original_words, spoken_words)
     
-    # NEW: Categorized Errors (Miscue Analysis)
     errors = []
     word_analysis = []
     
@@ -219,15 +218,15 @@ async def upload_audio(audio: UploadFile = File(...), passage: str = Form(...), 
         if tag == 'equal':
             for word in original_words[i1:i2]:
                 word_analysis.append({"word": word, "status": "correct", "type": "none"})
-        elif tag == 'delete': # Word was skipped
+        elif tag == 'delete':
             for word in original_words[i1:i2]:
                 errors.append(f"حذف:{word}")
                 word_analysis.append({"word": word, "status": "missing", "type": "حذف"})
-        elif tag == 'replace': # Word was mispronounced
+        elif tag == 'replace':
             for word in original_words[i1:i2]:
                 errors.append(f"إبدال:{word}")
                 word_analysis.append({"word": word, "status": "incorrect", "type": "إبدال"})
-        elif tag == 'insert': # Extra word was added
+        elif tag == 'insert':
             for word in spoken_words[j1:j2]:
                 errors.append(f"إضافة:{word}")
                 word_analysis.append({"word": word, "status": "extra", "type": "إضافة"})
@@ -315,6 +314,21 @@ async def get_audio(filename: str, token: str = Query(...), db: Session = Depend
     if os.path.exists(file_path):
         return FileResponse(path=file_path, media_type="audio/webm")
     raise HTTPException(status_code=404, detail="Audio file not found")
+
+# --- NEW: Realistic Text-to-Speech (TTS) Endpoint ---
+@app.post("/api/tts")
+async def text_to_speech(text: str = Form(...)):
+    try:
+        response = groq_client.audio.speech.create(
+            model="playai-tts-arabic",
+            voice="Maitreya-PlayAI",
+            input=text,
+            response_format="wav"
+        )
+        return StreamingResponse(io.BytesIO(response.read()), media_type="audio/wav")
+    except Exception as e:
+        print("TTS Error:", e)
+        raise HTTPException(status_code=500, detail="Failed to generate audio")
 
 @app.get("/api/users")
 def get_all_users(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
