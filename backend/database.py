@@ -7,6 +7,10 @@ from passlib.context import CryptContext
 # Read the URL from Render's environment variables
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./reading_platform.db")
 
+# CRITICAL FIX: Force SQLAlchemy to use psycopg2 instead of psycopg (psycopg3)
+if DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg2://", 1)
+
 # This part is CRITICAL so PostgreSQL doesn't crash
 if DATABASE_URL.startswith("sqlite"):
     engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
@@ -16,6 +20,7 @@ else:
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
 class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
@@ -44,7 +49,6 @@ class ResearchSession(Base):
     stars = Column(Integer, default=0)
     consent_given = Column(Boolean)
 
-# NEW: Passages Table
 class Passage(Base):
     __tablename__ = "passages"
     id = Column(Integer, primary_key=True, index=True)
@@ -52,7 +56,6 @@ class Passage(Base):
     level = Column(String)
     created_by = Column(Integer, ForeignKey("users.id"))
     
-    # NEW: Question Columns
     question1 = Column(Text, nullable=True)
     option1a = Column(String, nullable=True)
     option1b = Column(String, nullable=True)
@@ -86,7 +89,7 @@ if not db.query(User).filter(User.username == "student1").first():
     print("Student created (student1 / 12345)")
 
 if not db.query(Passage).first():
-    db.add(Passage(text="ذهب أحمد إلى الحديقة ليلعب مع أصدقائه. ركضوا وضحكوا كثيراً حتى غابت الشمس.", level="متوسط", created_by=doc.id))
+    db.add(Passage(text="ذهب أحمد إلى الحديقة ليلعب مع أصدقائه. ركضوا وضحكوا كثيراً حتى غابت الشمس.", level="متوسط", created_by=doc.id, question1="أين ذهب أحمد؟", option1a="المدرسة", option1b="الحديقة", option1c="المنزل", answer1="الحديقة", question2="من هو بطل القصة؟", option2a="أحمد", option2b="خالد", option2c="علي", answer2="أحمد"))
     print("Default passage created")
 
 db.commit()
