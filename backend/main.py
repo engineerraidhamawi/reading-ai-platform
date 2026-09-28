@@ -339,8 +339,18 @@ def get_all_users(current_user: User = Depends(get_current_user), db: Session = 
 def delete_user(user_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     if current_user.role != "admin": raise HTTPException(status_code=403, detail="Admin only")
     user = db.query(User).filter(User.id == user_id).first()
-    if user: db.delete(user); db.commit()
-    return {"message": "Deleted"}
+    if not user: raise HTTPException(status_code=404, detail="User not found")
+    
+    # NEW: Delete associated data first to avoid foreign key constraint errors
+    if user.role == "student":
+        db.query(ResearchSession).filter(ResearchSession.student_id == user_id).delete()
+    elif user.role == "doctor":
+        db.query(Passage).filter(Passage.created_by == user_id).delete()
+        db.query(ResearchSession).filter(ResearchSession.doctor_id == user_id).delete()
+        
+    db.delete(user)
+    db.commit()
+    return {"message": "Deleted successfully"}
 
 @app.put("/api/users/{user_id}/reset-password")
 def reset_password(user_id: int, new_password: str = Form(...), current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
