@@ -21,7 +21,7 @@ export default function RootLayout({
 
   return (
     <html lang="ar" dir="rtl" suppressHydrationWarning>
-        <head>
+      <head>
         <link rel="manifest" href="/manifest.json" />
         <meta name="theme-color" content="#7e22ce" />
         <title>منصة القراءة الذكية</title>
@@ -44,6 +44,7 @@ export default function RootLayout({
             
             {role ? (
               <nav className="flex flex-col gap-3 flex-1">
+                {/* Admin Links */}
                 {role === 'admin' && (
                   <>
                     <Link href="/admin" className="flex items-center gap-3 text-purple-900 bg-white/60 p-4 rounded-2xl shadow-sm transition-all hover:bg-white/80">
@@ -63,6 +64,7 @@ export default function RootLayout({
                   </>
                 )}
                 
+                {/* Doctor Links */}
                 {role === 'doctor' && (
                   <Link href="/" className="flex items-center gap-3 text-purple-900 bg-white/60 p-4 rounded-2xl shadow-sm transition-all hover:bg-white/80">
                     <span className="text-xl">📊</span>
@@ -73,12 +75,13 @@ export default function RootLayout({
                   </Link>
                 )}
                 
-                {role !== 'admin' && (
-                  <Link href="/student" className="flex items-center gap-3 text-purple-700 hover:bg-white/40 hover:text-purple-900 p-4 rounded-2xl transition-all">
+                {/* Student Links */}
+                {role === 'student' && (
+                  <Link href="/student" className="flex items-center gap-3 text-purple-900 bg-white/60 p-4 rounded-2xl shadow-sm transition-all hover:bg-white/80">
                     <span className="text-xl">🎤</span>
                     <div>
-                      <span className="font-semibold block">حصة الطالب</span>
-                      <span className="text-xs text-purple-400">تسجيل واختبار القراءة</span>
+                      <span className="font-bold block">حصة القراءة</span>
+                      <span className="text-xs text-purple-500">تسجيل واختبار القراءة</span>
                     </div>
                   </Link>
                 )}
@@ -98,7 +101,7 @@ export default function RootLayout({
             )}
           </aside>
 
-          {/* Main Content Area - adjusted for fixed sidebar */}
+          {/* Main Content Area */}
           <main className="flex-1 mr-64 p-6 overflow-y-auto h-screen">
             {children}
           </main>
