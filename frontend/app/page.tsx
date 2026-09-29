@@ -264,19 +264,19 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* جدول الجلسات المحدث بمسافات أكبر */}
+          {/* جدول الجلسات المحدث بمسافات أكبر وتخطيط ثابت */}
           <div className="bg-white/80 p-4 rounded-xl shadow-sm">
             <h2 className="text-sm font-bold mb-4 text-purple-900">سجل جلسات {selectedStudent}</h2>
             <div className="overflow-x-auto w-full" dir="rtl">
-              <table className="w-full text-right border-collapse">
+              <table className="w-full text-right border-collapse table-fixed">
                 <thead>
                   <tr className="border-b border-purple-100">
-                    <th className="py-3 px-3 text-xs font-bold text-purple-700">الدقة</th>
-                    <th className="py-3 px-3 text-xs font-bold text-purple-700">السرعة</th>
-                    <th className="py-3 px-3 text-xs font-bold text-purple-700">الفهم</th>
-                    <th className="py-3 px-3 text-xs font-bold text-purple-700">الأخطاء (النوع:الكلمة)</th>
-                    <th className="py-3 px-3 text-xs font-bold text-purple-700">النص والصوت</th>
-                    <th className="py-3 px-3 text-xs font-bold text-purple-700">إجراء</th>
+                    <th className="w-[10%] py-3 px-3 text-xs font-bold text-purple-700">الدقة</th>
+                    <th className="w-[10%] py-3 px-3 text-xs font-bold text-purple-700">السرعة</th>
+                    <th className="w-[10%] py-3 px-3 text-xs font-bold text-purple-700">الفهم</th>
+                    <th className="w-[20%] py-3 px-3 text-xs font-bold text-purple-700">الأخطاء</th>
+                    <th className="w-[40%] py-3 px-3 text-xs font-bold text-purple-700">النص والصوت</th>
+                    <th className="w-[10%] py-3 px-3 text-xs font-bold text-purple-700">إجراء</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -290,9 +290,9 @@ export default function Dashboard() {
                           <td className="py-3 px-3"><span className={`px-2 py-1 rounded-full text-xs font-bold ${accColor}`}>{session.accuracy_percent}%</span></td>
                           <td className="py-3 px-3 text-purple-600 font-bold text-xs whitespace-nowrap">{session.wpm} WPM</td>
                           <td className="py-3 px-3"><span className="px-2 py-1 rounded-full text-xs font-bold bg-purple-100 text-purple-700">{session.comprehension_score}</span></td>
-                          <td className="py-3 px-3 text-red-500 max-w-[150px] text-xs leading-relaxed">{session.error_tags}</td>
-                          <td className="py-3 px-3 text-purple-500 max-w-[300px] text-xs leading-relaxed">
-                            <div className="bg-white/60 rounded-md p-2 border border-purple-50">
+                          <td className="py-3 px-3 text-red-500 text-xs leading-relaxed break-words">{session.error_tags}</td>
+                          <td className="py-3 px-3 text-purple-500 text-xs leading-relaxed">
+                            <div className="bg-white/60 rounded-md p-2 border border-purple-50 break-words">
                               <p className="italic mb-2 block">"{session.asr_transcript}"</p>
                               {session.audio_file_id && (<audio controls src={session.audio_file_id} className="w-full h-8 mt-1">Your browser does not support the audio element.</audio>)}
                             </div>
