@@ -22,7 +22,12 @@ export default function Dashboard() {
 
   const fetchSessions = useCallback(async () => {
     const token = localStorage.getItem('token')
+    const role = localStorage.getItem('role')
     if (!token) return window.location.href = '/login'
+    
+    // NEW: Redirect students if they try to access the Doctor Dashboard
+    if (role === 'student') return window.location.href = '/student'
+    
     setLoading(true)
     try {
       const res = await axios.get('https://reading-ai-platform.onrender.com/api/sessions', { headers: { Authorization: `Bearer ${token}` } })
@@ -31,7 +36,6 @@ export default function Dashboard() {
       if (err.response?.status === 401) window.location.href = '/login'
     } finally { setLoading(false) }
   }, [])
-
   const fetchPassages = useCallback(async () => {
     const token = localStorage.getItem('token')
     try {
