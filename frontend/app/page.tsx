@@ -9,7 +9,6 @@ export default function Dashboard() {
   const [passages, setPassages] = useState([])
   const [loading, setLoading] = useState(false)
   
-  // NEW: Deep Dive State
   const [view, setView] = useState<'overview' | 'student' | 'passages'>('overview')
   const [selectedStudent, setSelectedStudent] = useState<string | null>(null)
   
@@ -105,23 +104,11 @@ export default function Dashboard() {
     const avgAccuracy = studentSessions.length > 0 ? (studentSessions.reduce((acc: number, s: any) => acc + s.accuracy_percent, 0) / studentSessions.length).toFixed(1) : 0;
     const avgWpm = studentSessions.length > 0 ? Math.round(studentSessions.reduce((acc: number, s: any) => acc + s.wpm, 0) / studentSessions.length) : 0;
     
-    const errorCounts: { [key: string]: number } = {};
-    studentSessions.forEach((s: any) => {
-      if (s.error_tags && s.error_tags !== "لا توجد أخطاء") {
-        s.error_tags.split(';').forEach((word: string) => {
-          const trimmed = word.trim();
-          if (trimmed) errorCounts[trimmed] = (errorCounts[trimmed] || 0) + 1;
-        });
-      }
-    });
-    const topErrors = Object.entries(errorCounts).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([word, count]) => `<li>${word} (${count} مرة)</li>`).join('');
-
     const reportHtml = `
       <!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><title>تقرير طالب: ${studentName}</title>
-      <style>body{font-family:'Segoe UI',Tahoma,sans-serif;padding:40px;color:#333}h1{color:#7e22ce;border-bottom:2px solid #e9d5ff;padding-bottom:10px}.stats{display:flex;gap:20px;margin-bottom:20px}.stat-box{background:#f8f5ff;padding:15px;border-radius:8px;border:1px solid #e9d5ff;flex:1;text-align:center}.stat-box h3{margin:0;color:#6b21a8;font-size:14px}.stat-box p{margin:5px 0 0;font-size:24px;font-weight:bold}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{border:1px solid #ddd;padding:8px;text-align:right;font-size:12px}th{background:#f8f5ff;color:#6b21a8}.errors{margin-top:20px}.errors ul{list-style:none;padding:0}.errors li{background:#fef2f2;color:#b91c1c;padding:5px 10px;margin-bottom:5px;border-radius:4px;display:inline-block;margin-left:10px}</style>
+      <style>body{font-family:'Segoe UI',Tahoma,sans-serif;padding:40px;color:#333}h1{color:#7e22ce;border-bottom:2px solid #e9d5ff;padding-bottom:10px}.stats{display:flex;gap:20px;margin-bottom:20px}.stat-box{background:#f8f5ff;padding:15px;border-radius:8px;border:1px solid #e9d5ff;flex:1;text-align:center}.stat-box h3{margin:0;color:#6b21a8;font-size:14px}.stat-box p{margin:5px 0 0;font-size:24px;font-weight:bold}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{border:1px solid #ddd;padding:8px;text-align:right;font-size:12px}th{background:#f8f5ff;color:#6b21a8}</style>
       </head><body><h1>تقرير تقدم الطالب: ${studentName}</h1>
       <div class="stats"><div class="stat-box"><h3>إجمالي الجلسات</h3><p>${studentSessions.length}</p></div><div class="stat-box"><h3>متوسط الدقة</h3><p>${avgAccuracy}%</p></div><div class="stat-box"><h3>متوسط السرعة</h3><p>${avgWpm} WPM</p></div></div>
-      ${topErrors ? `<div class="errors"><h3>أكثر الأخطاء شيوعاً:</h3><ul>${topErrors}</ul></div>` : ''}
       <h3>سجل الجلسات:</h3><table><thead><tr><th>التاريخ</th><th>الدقة</th><th>السرعة</th><th>الفهم</th><th>الأخطاء</th></tr></thead><tbody>
       ${studentSessions.map((s: any) => `<tr><td>${new Date(s.session_date).toLocaleDateString()}</td><td>${s.accuracy_percent}%</td><td>${s.wpm}</td><td>${s.comprehension_score}</td><td>${s.error_tags}</td></tr>`).join('')}
       </tbody></table><script>window.onload=function(){window.print()}</script></body></html>
@@ -130,11 +117,8 @@ export default function Dashboard() {
     if (printWindow) { printWindow.document.write(reportHtml); printWindow.document.close(); }
   };
 
-  // Data Calculations
   const uniqueStudents = [...new Set(sessions.map((s: any) => s.student_username))]
-  
   const filteredSessions = selectedStudent ? sessions.filter((s: any) => s.student_username === selectedStudent) : sessions
-  
   const chartData = filteredSessions.map((s: any) => ({ name: s.student_username, accuracy: s.accuracy_percent, wpm: s.wpm }))
   
   const studentProgressData = sessions
@@ -142,17 +126,19 @@ export default function Dashboard() {
     .map((s: any) => ({ name: new Date(s.session_date).toLocaleDateString(), accuracy: s.accuracy_percent, wpm: s.wpm }))
     .reverse()
 
-  const errorCounts: { [key: string]: number } = {}
+  const errorTypeCounts: { [key: string]: number } = { "حذف": 0, "إبدال": 0, "إضافة": 0 }
   filteredSessions.forEach((s: any) => {
     if (s.error_tags && s.error_tags !== "لا توجد أخطاء") {
-      s.error_tags.split(';').forEach((word: string) => {
-        const trimmed = word.trim()
-        if (trimmed) errorCounts[trimmed] = (errorCounts[trimmed] || 0) + 1
+      s.error_tags.split(';').forEach((item: string) => {
+        const type = item.split(':')[0]
+        if (type && errorTypeCounts.hasOwnProperty(type)) {
+          errorTypeCounts[type]++
+        }
       })
     }
   })
-  const pieData = Object.entries(errorCounts).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value).slice(0, 5)
-  const PIE_COLORS = ['#8b5cf6', '#ec4899', '#06b6d4', '#f59e0b', '#10b981']
+  const pieData = Object.entries(errorTypeCounts).map(([name, value]) => ({ name, value })).filter(d => d.value > 0)
+  const PIE_COLORS = ['#ef4444', '#f59e0b', '#3b82f6'] 
 
   return (
     <div className="p-4 md:p-6 max-w-6xl mx-auto">
@@ -174,7 +160,6 @@ export default function Dashboard() {
         </div>
       </header>
 
-      {/* OVERVIEW VIEW (Student List) */}
       {view === 'overview' && (
         <>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
@@ -185,11 +170,7 @@ export default function Dashboard() {
                 const studentSessions = sessions.filter((s: any) => s.student_username === student)
                 const avgAcc = (studentSessions.reduce((acc: number, s: any) => acc + s.accuracy_percent, 0) / studentSessions.length).toFixed(0)
                 return (
-                  <button 
-                    key={student} 
-                    onClick={() => { setSelectedStudent(student); setView('student') }} 
-                    className="bg-white/80 p-4 rounded-xl shadow-sm hover:scale-105 transition text-right border border-purple-100"
-                  >
+                  <button key={student} onClick={() => { setSelectedStudent(student); setView('student') }} className="bg-white/80 p-4 rounded-xl shadow-sm hover:scale-105 transition text-right border border-purple-100">
                     <div className="flex justify-between items-center mb-2">
                       <span className="text-lg font-bold text-purple-900">{student}</span>
                       <span className="text-2xl">👤</span>
@@ -220,7 +201,7 @@ export default function Dashboard() {
             </div>
             
             <div className="bg-white/80 p-4 rounded-xl shadow-sm">
-              <h2 className="text-sm font-bold mb-2 text-purple-900">أكثر الأخطاء شيوعاً (عام)</h2>
+              <h2 className="text-sm font-bold mb-2 text-purple-900">تحليل أنواع الأخطاء (Miscue Analysis)</h2>
               <div className="w-full h-40" dir="rtl">
                 {pieData.length === 0 ? (
                   <p className="text-center text-gray-400 text-xs mt-16">لا توجد أخطاء مسجلة بعد.</p>
@@ -240,7 +221,6 @@ export default function Dashboard() {
         </>
       )}
 
-      {/* STUDENT DEEP DIVE VIEW */}
       {view === 'student' && selectedStudent && (
         <>
           <div className="flex justify-end mb-4">
@@ -265,7 +245,7 @@ export default function Dashboard() {
           </div>
 
           <div className="bg-white/80 p-4 rounded-xl shadow-sm mb-4">
-            <h2 className="text-sm font-bold mb-2 text-purple-900">تقدم الطالب over time</h2>
+            <h2 className="text-sm font-bold mb-2 text-purple-900">تقدم الطالب</h2>
             <div className="w-full h-56" dir="rtl">
               {studentProgressData.length === 0 ? (
                 <p className="text-center text-gray-400 text-xs mt-20">لا توجد بيانات كافية لرسم التقدم.</p>
@@ -284,18 +264,19 @@ export default function Dashboard() {
             </div>
           </div>
 
+          {/* جدول الجلسات المحدث بمسافات أكبر */}
           <div className="bg-white/80 p-4 rounded-xl shadow-sm">
-            <h2 className="text-sm font-bold mb-2 text-purple-900">سجل جلسات {selectedStudent}</h2>
+            <h2 className="text-sm font-bold mb-4 text-purple-900">سجل جلسات {selectedStudent}</h2>
             <div className="overflow-x-auto w-full" dir="rtl">
               <table className="w-full text-right border-collapse">
                 <thead>
                   <tr className="border-b border-purple-100">
-                    <th className="py-2 px-2 text-[10px] font-bold text-purple-700">الدقة</th>
-                    <th className="py-2 px-2 text-[10px] font-bold text-purple-700">السرعة</th>
-                    <th className="py-2 px-2 text-[10px] font-bold text-purple-700">الفهم</th>
-                    <th className="py-2 px-2 text-[10px] font-bold text-purple-700">الأخطاء</th>
-                    <th className="py-2 px-2 text-[10px] font-bold text-purple-700">النص والصوت</th>
-                    <th className="py-2 px-2 text-[10px] font-bold text-purple-700">إجراء</th>
+                    <th className="py-3 px-3 text-xs font-bold text-purple-700">الدقة</th>
+                    <th className="py-3 px-3 text-xs font-bold text-purple-700">السرعة</th>
+                    <th className="py-3 px-3 text-xs font-bold text-purple-700">الفهم</th>
+                    <th className="py-3 px-3 text-xs font-bold text-purple-700">الأخطاء (النوع:الكلمة)</th>
+                    <th className="py-3 px-3 text-xs font-bold text-purple-700">النص والصوت</th>
+                    <th className="py-3 px-3 text-xs font-bold text-purple-700">إجراء</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -306,17 +287,17 @@ export default function Dashboard() {
                       const accColor = session.accuracy_percent > 85 ? 'bg-emerald-100 text-emerald-700' : session.accuracy_percent > 60 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700';
                       return (
                         <tr key={session.session_id} className="border-b border-purple-50 hover:bg-white/60 align-top">
-                          <td className="py-2 px-2"><span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${accColor}`}>{session.accuracy_percent}%</span></td>
-                          <td className="py-2 px-2 text-purple-600 font-bold text-xs whitespace-nowrap">{session.wpm} WPM</td>
-                          <td className="py-2 px-2"><span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-700">{session.comprehension_score}</span></td>
-                          <td className="py-2 px-2 text-red-500 max-w-[120px] text-[10px] leading-relaxed">{session.error_tags}</td>
-                          <td className="py-2 px-2 text-purple-500 max-w-[250px] text-[10px] leading-relaxed">
-                            <div className="bg-white/60 rounded-md p-1.5 border border-purple-50">
-                              <p className="italic mb-1">"{session.asr_transcript}"</p>
-                              {session.audio_file_id && (<audio controls src={session.audio_file_id} className="w-full h-6 mt-1">Your browser does not support the audio element.</audio>)}
+                          <td className="py-3 px-3"><span className={`px-2 py-1 rounded-full text-xs font-bold ${accColor}`}>{session.accuracy_percent}%</span></td>
+                          <td className="py-3 px-3 text-purple-600 font-bold text-xs whitespace-nowrap">{session.wpm} WPM</td>
+                          <td className="py-3 px-3"><span className="px-2 py-1 rounded-full text-xs font-bold bg-purple-100 text-purple-700">{session.comprehension_score}</span></td>
+                          <td className="py-3 px-3 text-red-500 max-w-[150px] text-xs leading-relaxed">{session.error_tags}</td>
+                          <td className="py-3 px-3 text-purple-500 max-w-[300px] text-xs leading-relaxed">
+                            <div className="bg-white/60 rounded-md p-2 border border-purple-50">
+                              <p className="italic mb-2 block">"{session.asr_transcript}"</p>
+                              {session.audio_file_id && (<audio controls src={session.audio_file_id} className="w-full h-8 mt-1">Your browser does not support the audio element.</audio>)}
                             </div>
                           </td>
-                          <td className="py-2 px-2 text-center">
+                          <td className="py-3 px-3 text-center">
                             <button onClick={() => handleDeleteSession(session.session_id)} className="text-red-500 hover:text-red-700 text-lg">🗑️</button>
                           </td>
                         </tr>
@@ -330,7 +311,6 @@ export default function Dashboard() {
         </>
       )}
 
-      {/* PASSAGES VIEW */}
       {view === 'passages' && (
         <div className="bg-white/80 border border-purple-200 p-4 rounded-xl shadow-lg mb-4">
           <div className="flex justify-between items-center mb-3">
