@@ -15,6 +15,10 @@ export default function StudentReadingPage() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
 
+  // NEW: State for accurate WPM
+  const [recordingDuration, setRecordingDuration] = useState(0)
+  const startTimeRef = useRef<number | null>(null)
+
   const [ans1, setAns1] = useState('')
   const [ans2, setAns2] = useState('')
   const [wordAnalysis, setWordAnalysis] = useState<any[]>([])
@@ -47,7 +51,15 @@ export default function StudentReadingPage() {
           setAudioBlob(blob)
           setStatus('تم التسجيل. اضغط "التالي" للانتقال إلى الاختبار')
           stream.getTracks().forEach(track => track.stop())
+          
+          // NEW: Calculate exact duration
+          if (startTimeRef.current) {
+            const durationInSec = (Date.now() - startTimeRef.current) / 1000
+            setRecordingDuration(durationInSec)
+          }
         }
+        // NEW: Record start time
+        startTimeRef.current = Date.now()
         mediaRecorder.start(1000)
         setIsRecording(true)
         setStatus('جارٍ التسجيل... اقرأ النص بصوت واضح')
@@ -77,6 +89,7 @@ export default function StudentReadingPage() {
     formData.append('audio', audioBlob, 'recording.webm')
     formData.append('passage', selectedPassage.text)
     formData.append('comprehension_score', score)
+    formData.append('duration_seconds', recordingDuration.toString()) // NEW: Send real duration
 
     try {
       const res = await axios.post('https://reading-ai-platform.onrender.com/api/sessions/upload', formData, {
@@ -155,6 +168,7 @@ export default function StudentReadingPage() {
     setErrorWords([])
     setPracticeQuestions([])
     setPracticeAnswers([])
+    setRecordingDuration(0) // NEW: Reset duration
   }
 
   return (

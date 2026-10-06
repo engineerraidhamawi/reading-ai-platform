@@ -185,7 +185,14 @@ def get_sessions(current_user: User = Depends(get_current_user), db: Session = D
     return sessions_list
 
 @app.post("/api/sessions/upload")
-async def upload_audio(audio: UploadFile = File(...), passage: str = Form(...), comprehension_score: str = Form("0/2"), current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+async def upload_audio(
+    audio: UploadFile = File(...), 
+    passage: str = Form(...), 
+    comprehension_score: str = Form("0/2"), 
+    duration_seconds: float = Form(30.0), # NEW: Accept real duration
+    current_user: User = Depends(get_current_user), 
+    db: Session = Depends(get_db)
+):
     if current_user.role != "student": raise HTTPException(status_code=403, detail="Students only")
     
     temp_file_name = f"audio_{datetime.datetime.now().timestamp()}.webm"
@@ -235,14 +242,21 @@ async def upload_audio(audio: UploadFile = File(...), passage: str = Form(...), 
     if accuracy >= 75: stars += 1
     if comprehension_score == "2/2": stars += 1
 
+    # NEW: Calculate scientifically accurate WPM
+    if duration_seconds > 0:
+        wpm = round((len(spoken_words) / duration_seconds) * 60, 1)
+    else:
+        wpm = 0
+
     new_session = ResearchSession(
         session_id=f"SES-{datetime.datetime.now().timestamp()}", student_id=current_user.id, doctor_id=current_user.doctor_id,
         age_range="8-10", grade="4", passage_id="PASS", passage_level="متوسط", 
         audio_file_id=audio_url, 
         asr_transcript=raw_transcript, 
         error_tags=";".join(errors) or "لا توجد أخطاء",
-        wpm=int(len(spoken_words) / 0.5), accuracy_percent=accuracy, comprehension_score=comprehension_score,
-        duration_seconds=30, consent_given=True, 
+        wpm=wpm, accuracy_percent=accuracy, comprehension_score=comprehension_score,
+        duration_seconds=duration_seconds, # Save real duration
+        consent_given=True, 
         stars=stars
     )
     db.add(new_session)
@@ -264,10 +278,10 @@ def export_sessions(current_user: User = Depends(get_current_user), db: Session 
     output = io.StringIO()
     output.write('\ufeff') 
     writer = csv.writer(output)
-    writer.writerow(["Student", "Date", "WPM", "Accuracy (%)", "Comprehension", "Errors", "AI Transcript"])
+    writer.writerow(["Student", "Date", "Duration (s)", "WPM", "Accuracy (%)", "Comprehension", "Errors", "AI Transcript"])
     
     for session, student_username in query.all():
-        writer.writerow([student_username, session.session_date, session.wpm, session.accuracy_percent, session.comprehension_score, session.error_tags, session.asr_transcript])
+        writer.writerow([student_username, session.session_date, session.duration_seconds, session.wpm, session.accuracy_percent, session.comprehension_score, session.error_tags, session.asr_transcript])
     
     output.seek(0)
     return StreamingResponse(output, media_type="text/csv", headers={"Content-Disposition": "attachment; filename=research_data.csv"})
@@ -315,7 +329,6 @@ async def get_audio(filename: str, token: str = Query(...), db: Session = Depend
         return FileResponse(path=file_path, media_type="audio/webm")
     raise HTTPException(status_code=404, detail="Audio file not found")
 
-# --- NEW: Realistic Text-to-Speech (TTS) Endpoint ---
 @app.post("/api/tts")
 async def text_to_speech(text: str = Form(...)):
     try:
@@ -341,7 +354,6 @@ def delete_user(user_id: int, current_user: User = Depends(get_current_user), db
     user = db.query(User).filter(User.id == user_id).first()
     if not user: raise HTTPException(status_code=404, detail="User not found")
     
-    # NEW: Delete associated data first to avoid foreign key constraint errors
     if user.role == "student":
         db.query(ResearchSession).filter(ResearchSession.student_id == user_id).delete()
     elif user.role == "doctor":
