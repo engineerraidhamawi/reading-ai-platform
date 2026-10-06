@@ -171,6 +171,61 @@ def get_passages(current_user: User = Depends(get_current_user), db: Session = D
         if doctor: return db.query(Passage).filter(Passage.created_by == doctor.id).all()
     return db.query(Passage).all()
 
+# ==========================================
+# NEW: AI PASSAGE GENERATION ENDPOINT
+# ==========================================
+class GeneratePromptRequest(BaseModel):
+    grade_level: str
+    num_questions: int = 4
+
+@app.post("/api/passages/generate")
+async def generate_ai_passage(request: GeneratePromptRequest, current_user: User = Depends(get_current_user)):
+    if current_user.role not in ["doctor", "admin"]:
+        raise HTTPException(status_code=403, detail="Doctors/Admins only")
+    
+    try:
+        # Create the prompt for Groq Llama 3.3
+        prompt = f"""
+        You are an expert Arabic reading education specialist. 
+        Generate a short reading passage suitable for a {request.grade_level} grade student.
+        The passage should be engaging and culturally appropriate.
+        
+        Then, generate {request.num_questions} comprehension questions based on the passage.
+        Each question must have 3 options (a, b, c) and one correct answer.
+        
+        Return the response strictly as a JSON object with this structure:
+        {{
+            "text": "The Arabic passage here...",
+            "questions": [
+                {{
+                    "question": "Question 1 text?",
+                    "option_a": "Option A",
+                    "option_b": "Option B",
+                    "option_c": "Option C",
+                    "answer": "The correct option text"
+                }}
+            ]
+        }}
+        """
+        
+        chat_completion = groq_client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": "You are a helpful AI assistant designed to output JSON."},
+                {"role": "user", "content": prompt}
+            ],
+            model="llama-3.3-70b-versatile",
+            response_format={"type": "json_object"}
+        )
+        
+        generated_data = json.loads(chat_completion.choices[0].message.content)
+        
+        # You can optionally save this to Supabase/Postgres here, or just return it to the frontend
+        return generated_data
+
+    except Exception as e:
+        print("Groq Generation Error:", e)
+        raise HTTPException(status_code=500, detail="Failed to generate passage with AI.")
+
 @app.get("/api/sessions")
 def get_sessions(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     query = db.query(ResearchSession, User.username).join(User, ResearchSession.student_id == User.id)
