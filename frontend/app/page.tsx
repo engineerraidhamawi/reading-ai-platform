@@ -13,6 +13,7 @@ export default function Dashboard() {
   const [selectedStudent, setSelectedStudent] = useState<string | null>(null)
   
   const [newPassage, setNewPassage] = useState('')
+  const [newGrade, setNewGrade] = useState('الصف الأول') // NEW: Grade state
   const [q1, setQ1] = useState('')
   const [o1a, setO1a] = useState(''); const [o1b, setO1b] = useState(''); const [o1c, setO1c] = useState(''); const [a1, setA1] = useState('')
   const [q2, setQ2] = useState('')
@@ -22,7 +23,10 @@ export default function Dashboard() {
 
   const fetchSessions = useCallback(async () => {
     const token = localStorage.getItem('token')
+    const role = localStorage.getItem('role')
     if (!token) return window.location.href = '/login'
+    if (role === 'student') return window.location.href = '/student'
+    
     setLoading(true)
     try {
       const res = await axios.get('https://reading-ai-platform.onrender.com/api/sessions', { headers: { Authorization: `Bearer ${token}` } })
@@ -66,13 +70,13 @@ export default function Dashboard() {
     try {
       const formData = new FormData()
       formData.append('text', newPassage)
-      formData.append('level', 'متوسط')
+      formData.append('level', newGrade) // Save the selected grade
       formData.append('question1', q1); formData.append('option1a', o1a); formData.append('option1b', o1b); formData.append('option1c', o1c); formData.append('answer1', a1)
       formData.append('question2', q2); formData.append('option2a', o2a); formData.append('option2b', o2b); formData.append('option2c', o2c); formData.append('answer2', a2)
 
       await axios.post('https://reading-ai-platform.onrender.com/api/passages', formData, { headers: { Authorization: `Bearer ${token}` } })
       
-      setNewPassage(''); setQ1(''); setO1a(''); setO1b(''); setO1c(''); setA1(''); setQ2(''); setO2a(''); setO2b(''); setO2c(''); setA2('')
+      setNewPassage(''); setNewGrade('الصف الأول'); setQ1(''); setO1a(''); setO1b(''); setO1c(''); setA1(''); setQ2(''); setO2a(''); setO2b(''); setO2c(''); setA2('')
       setShowPassageForm(false)
       alert('تم إضافة النص والأسئلة بنجاح!')
       fetchPassages()
@@ -139,6 +143,13 @@ export default function Dashboard() {
   })
   const pieData = Object.entries(errorTypeCounts).map(([name, value]) => ({ name, value })).filter(d => d.value > 0)
   const PIE_COLORS = ['#ef4444', '#f59e0b', '#3b82f6'] 
+
+  // NEW: Group passages by Grade
+  const grades = ['الصف الأول', 'الصف الثاني', 'الصف الثالث', 'الصف الرابع', 'الصف الخامس', 'الصف السادس']
+  const groupedPassages = grades.map(grade => ({
+    grade,
+    items: passages.filter((p: any) => p.level === grade)
+  })).filter(g => g.items.length > 0)
 
   return (
     <div className="p-4 md:p-6 max-w-6xl mx-auto">
@@ -264,19 +275,18 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* جدول الجلسات المحدث بمسافات أكبر */}
-          <div className="bg-white/80 p-4 rounded-xl shadow-sm">
+          <div className="bg-white/80 p-4 rounded-xl shadow-sm mb-4">
             <h2 className="text-sm font-bold mb-4 text-purple-900">سجل جلسات {selectedStudent}</h2>
             <div className="overflow-x-auto w-full" dir="rtl">
-              <table className="w-full text-right border-collapse">
+              <table className="w-full text-right border-collapse table-fixed">
                 <thead>
                   <tr className="border-b border-purple-100">
-                    <th className="py-3 px-3 text-xs font-bold text-purple-700">الدقة</th>
-                    <th className="py-3 px-3 text-xs font-bold text-purple-700">السرعة</th>
-                    <th className="py-3 px-3 text-xs font-bold text-purple-700">الفهم</th>
-                    <th className="py-3 px-3 text-xs font-bold text-purple-700">الأخطاء (النوع:الكلمة)</th>
-                    <th className="py-3 px-3 text-xs font-bold text-purple-700">النص والصوت</th>
-                    <th className="py-3 px-3 text-xs font-bold text-purple-700">إجراء</th>
+                    <th className="w-[10%] py-3 px-3 text-xs font-bold text-purple-700">الدقة</th>
+                    <th className="w-[10%] py-3 px-3 text-xs font-bold text-purple-700">السرعة</th>
+                    <th className="w-[10%] py-3 px-3 text-xs font-bold text-purple-700">الفهم</th>
+                    <th className="w-[20%] py-3 px-3 text-xs font-bold text-purple-700">الأخطاء</th>
+                    <th className="w-[40%] py-3 px-3 text-xs font-bold text-purple-700">النص والصوت</th>
+                    <th className="w-[10%] py-3 px-3 text-xs font-bold text-purple-700">إجراء</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -290,9 +300,9 @@ export default function Dashboard() {
                           <td className="py-3 px-3"><span className={`px-2 py-1 rounded-full text-xs font-bold ${accColor}`}>{session.accuracy_percent}%</span></td>
                           <td className="py-3 px-3 text-purple-600 font-bold text-xs whitespace-nowrap">{session.wpm} WPM</td>
                           <td className="py-3 px-3"><span className="px-2 py-1 rounded-full text-xs font-bold bg-purple-100 text-purple-700">{session.comprehension_score}</span></td>
-                          <td className="py-3 px-3 text-red-500 max-w-[150px] text-xs leading-relaxed">{session.error_tags}</td>
-                          <td className="py-3 px-3 text-purple-500 max-w-[300px] text-xs leading-relaxed">
-                            <div className="bg-white/60 rounded-md p-2 border border-purple-50">
+                          <td className="py-3 px-3 text-red-500 text-xs leading-relaxed break-words">{session.error_tags}</td>
+                          <td className="py-3 px-3 text-purple-500 text-xs leading-relaxed">
+                            <div className="bg-white/60 rounded-md p-2 border border-purple-50 break-words">
                               <p className="italic mb-2 block">"{session.asr_transcript}"</p>
                               {session.audio_file_id && (<audio controls src={session.audio_file_id} className="w-full h-8 mt-1">Your browser does not support the audio element.</audio>)}
                             </div>
@@ -311,17 +321,28 @@ export default function Dashboard() {
         </>
       )}
 
+      {/* Passages View with Grade Grouping */}
       {view === 'passages' && (
         <div className="bg-white/80 border border-purple-200 p-4 rounded-xl shadow-lg mb-4">
-          <div className="flex justify-between items-center mb-3">
-            <h3 className="text-base font-bold text-purple-900">إدارة النصوص القرائية</h3>
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-base font-bold text-purple-900">إدارة النصوص حسب الصف</h3>
             <button onClick={() => setShowPassageForm(!showPassageForm)} className="bg-purple-600 text-white px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-purple-700 transition">➕ إضافة نص جديد</button>
           </div>
 
           {showPassageForm && (
             <div className="border border-purple-100 p-3 rounded-lg mb-4 bg-purple-50/50">
               <form onSubmit={handleAddPassage} className="flex flex-col gap-3">
-                <textarea value={newPassage} onChange={(e) => setNewPassage(e.target.value)} placeholder="اكتب النص هنا..." className="p-2 rounded-lg bg-white border border-purple-100 focus:ring-1 focus:ring-purple-400 h-16 text-xs text-gray-900" required />
+                <div>
+                  <label className="block text-xs font-bold text-purple-800 mb-1">الصف الدراسي</label>
+                  <select value={newGrade} onChange={(e) => setNewGrade(e.target.value)} className="w-full p-2 rounded-md bg-white border border-purple-100 text-xs text-gray-900" required>
+                    {grades.map(g => <option key={g} value={g}>{g}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-purple-800 mb-1">نص القراءة</label>
+                  <textarea value={newPassage} onChange={(e) => setNewPassage(e.target.value)} placeholder="اكتب النص هنا..." className="p-2 rounded-lg bg-white border border-purple-100 focus:ring-1 focus:ring-purple-400 h-16 text-xs text-gray-900 w-full" required />
+                </div>
+                
                 <div className="border-t pt-2">
                   <h4 className="font-bold text-purple-800 text-sm mb-2">السؤال الأول</h4>
                   <input value={q1} onChange={(e) => setQ1(e.target.value)} placeholder="نص السؤال" className="w-full p-2 mb-2 rounded-md bg-white border border-purple-100 text-xs text-gray-900" required />
@@ -347,12 +368,21 @@ export default function Dashboard() {
             </div>
           )}
 
-          <div className="flex flex-col gap-2 mt-4">
-            {passages.length === 0 ? <p className="text-xs text-gray-500">لا توجد نصوص.</p> : (
-              passages.map((p: any) => (
-                <div key={p.id} className="flex justify-between items-center border-b border-purple-50 py-2">
-                  <span className="text-xs text-gray-800 font-medium max-w-[80%] truncate">{p.text}</span>
-                  <button onClick={() => handleDeletePassage(p.id)} className="text-red-500 hover:text-red-700 text-xs font-bold">🗑️ حذف</button>
+          <div className="flex flex-col gap-4 mt-4">
+            {groupedPassages.length === 0 ? <p className="text-xs text-gray-500">لا توجد نصوص بعد. ابدأ بإضافة نص جديد!</p> : (
+              groupedPassages.map(group => (
+                <div key={group.grade} className="border border-purple-100 rounded-xl overflow-hidden">
+                  <div className="bg-purple-50 px-4 py-2 font-bold text-sm text-purple-800 border-b border-purple-100">
+                    📁 {group.grade}
+                  </div>
+                  <div className="divide-y divide-purple-50">
+                    {group.items.map((p: any) => (
+                      <div key={p.id} className="flex justify-between items-center p-3 bg-white hover:bg-purple-50/30 transition">
+                        <span className="text-xs text-gray-800 font-medium max-w-[80%] truncate">{p.text}</span>
+                        <button onClick={() => handleDeletePassage(p.id)} className="text-red-500 hover:text-red-700 text-xs font-bold">🗑️ حذف</button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               ))
             )}
