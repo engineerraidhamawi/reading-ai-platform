@@ -11,9 +11,10 @@ export default function Dashboard() {
   
   const [view, setView] = useState<'overview' | 'student' | 'passages'>('overview')
   const [selectedStudent, setSelectedStudent] = useState<string | null>(null)
+  const [expandedGrade, setExpandedGrade] = useState<string | null>(null) // NEW: For folder expansion
   
   const [newPassage, setNewPassage] = useState('')
-  const [newGrade, setNewGrade] = useState('الصف الأول') // NEW: Grade state
+  const [newGrade, setNewGrade] = useState('الصف الأول')
   const [q1, setQ1] = useState('')
   const [o1a, setO1a] = useState(''); const [o1b, setO1b] = useState(''); const [o1c, setO1c] = useState(''); const [a1, setA1] = useState('')
   const [q2, setQ2] = useState('')
@@ -70,7 +71,7 @@ export default function Dashboard() {
     try {
       const formData = new FormData()
       formData.append('text', newPassage)
-      formData.append('level', newGrade) // Save the selected grade
+      formData.append('level', newGrade)
       formData.append('question1', q1); formData.append('option1a', o1a); formData.append('option1b', o1b); formData.append('option1c', o1c); formData.append('answer1', a1)
       formData.append('question2', q2); formData.append('option2a', o2a); formData.append('option2b', o2b); formData.append('option2c', o2c); formData.append('answer2', a2)
 
@@ -144,12 +145,7 @@ export default function Dashboard() {
   const pieData = Object.entries(errorTypeCounts).map(([name, value]) => ({ name, value })).filter(d => d.value > 0)
   const PIE_COLORS = ['#ef4444', '#f59e0b', '#3b82f6'] 
 
-  // NEW: Group passages by Grade
   const grades = ['الصف الأول', 'الصف الثاني', 'الصف الثالث', 'الصف الرابع', 'الصف الخامس', 'الصف السادس']
-  const groupedPassages = grades.map(grade => ({
-    grade,
-    items: passages.filter((p: any) => p.level === grade)
-  })).filter(g => g.items.length > 0)
 
   return (
     <div className="p-4 md:p-6 max-w-6xl mx-auto">
@@ -321,7 +317,7 @@ export default function Dashboard() {
         </>
       )}
 
-      {/* Passages View with Grade Grouping */}
+      {/* Passages View with Interactive Grade Folders */}
       {view === 'passages' && (
         <div className="bg-white/80 border border-purple-200 p-4 rounded-xl shadow-lg mb-4">
           <div className="flex justify-between items-center mb-4">
@@ -368,24 +364,41 @@ export default function Dashboard() {
             </div>
           )}
 
-          <div className="flex flex-col gap-4 mt-4">
-            {groupedPassages.length === 0 ? <p className="text-xs text-gray-500">لا توجد نصوص بعد. ابدأ بإضافة نص جديد!</p> : (
-              groupedPassages.map(group => (
-                <div key={group.grade} className="border border-purple-100 rounded-xl overflow-hidden">
-                  <div className="bg-purple-50 px-4 py-2 font-bold text-sm text-purple-800 border-b border-purple-100">
-                    📁 {group.grade}
-                  </div>
-                  <div className="divide-y divide-purple-50">
-                    {group.items.map((p: any) => (
-                      <div key={p.id} className="flex justify-between items-center p-3 bg-white hover:bg-purple-50/30 transition">
-                        <span className="text-xs text-gray-800 font-medium max-w-[80%] truncate">{p.text}</span>
-                        <button onClick={() => handleDeletePassage(p.id)} className="text-red-500 hover:text-red-700 text-xs font-bold">🗑️ حذف</button>
-                      </div>
-                    ))}
-                  </div>
+          {/* Grade Folders Grid */}
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-4">
+            {grades.map(grade => {
+              const count = passages.filter(p => p.level === grade).length;
+              const isExpanded = expandedGrade === grade;
+              return (
+                <div key={grade} className={`border rounded-xl overflow-hidden shadow-sm transition-all ${isExpanded ? 'border-purple-400 md:col-span-3' : 'border-purple-100 bg-white'}`}>
+                  <button 
+                    onClick={() => setExpandedGrade(isExpanded ? null : grade)} 
+                    className={`w-full flex justify-between items-center p-3 transition ${isExpanded ? 'bg-purple-100' : 'bg-purple-50 hover:bg-purple-100'}`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-xl">{isExpanded ? '📂' : '📁'}</span>
+                      <span className="font-bold text-sm text-purple-800">{grade}</span>
+                    </div>
+                    <span className="text-[10px] bg-purple-200 text-purple-800 rounded-full px-2 py-0.5 font-bold">{count} نص</span>
+                  </button>
+                  
+                  {isExpanded && (
+                    <div className="divide-y divide-purple-50 p-2 bg-white">
+                      {count === 0 ? (
+                        <p className="text-xs text-gray-400 p-3 text-center">لا توجد نصوص في هذا الصف بعد.</p>
+                      ) : (
+                        passages.filter(p => p.level === grade).map(p => (
+                          <div key={p.id} className="flex justify-between items-center p-2 bg-white hover:bg-purple-50/30 transition">
+                            <span className="text-xs text-gray-800 font-medium max-w-[80%] truncate">{p.text}</span>
+                            <button onClick={() => handleDeletePassage(p.id)} className="text-red-500 hover:text-red-700 text-xs font-bold">🗑️ حذف</button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
                 </div>
-              ))
-            )}
+              )
+            })}
           </div>
         </div>
       )}
