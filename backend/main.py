@@ -213,7 +213,7 @@ async def generate_ai_passage(request: GeneratePromptRequest, current_user: User
                 {"role": "system", "content": "You are a helpful AI assistant designed to output JSON."},
                 {"role": "user", "content": prompt}
             ],
-            model="llama-3.3-70b-versatile",
+            model="llama-3.1-8b-instant",
             response_format={"type": "json_object"}
         )
         
@@ -224,14 +224,7 @@ async def generate_ai_passage(request: GeneratePromptRequest, current_user: User
     except Exception as e:
         print("Groq Generation Error:", e)
         raise HTTPException(status_code=500, detail="Failed to generate passage with AI.")
-        
-        generated_data = json.loads(chat_completion.choices[0].message.content)
-        
-        return generated_data
 
-    except Exception as e:
-        print("Groq Generation Error:", e)
-        raise HTTPException(status_code=500, detail="Failed to generate passage with AI.")
 @app.get("/api/sessions")
 def get_sessions(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     query = db.query(ResearchSession, User.username).join(User, ResearchSession.student_id == User.id)
@@ -250,7 +243,7 @@ async def upload_audio(
     audio: UploadFile = File(...), 
     passage: str = Form(...), 
     comprehension_score: str = Form("0/2"), 
-    duration_seconds: float = Form(30.0), # NEW: Accept real duration
+    duration_seconds: float = Form(30.0),
     current_user: User = Depends(get_current_user), 
     db: Session = Depends(get_db)
 ):
@@ -303,7 +296,6 @@ async def upload_audio(
     if accuracy >= 75: stars += 1
     if comprehension_score == "2/2": stars += 1
 
-    # NEW: Calculate scientifically accurate WPM
     if duration_seconds > 0:
         wpm = round((len(spoken_words) / duration_seconds) * 60, 1)
     else:
@@ -316,7 +308,7 @@ async def upload_audio(
         asr_transcript=raw_transcript, 
         error_tags=";".join(errors) or "لا توجد أخطاء",
         wpm=wpm, accuracy_percent=accuracy, comprehension_score=comprehension_score,
-        duration_seconds=duration_seconds, # Save real duration
+        duration_seconds=duration_seconds, 
         consent_given=True, 
         stars=stars
     )
