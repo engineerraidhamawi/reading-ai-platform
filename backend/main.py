@@ -522,3 +522,44 @@ async def analyze_readability(text: str = Form(...), current_user: User = Depend
             "complex_letter_ratio": round(complex_ratio, 1)
         }
     }
+
+# ==========================================
+# AI TEACHER FEEDBACK ENDPOINT
+# ==========================================
+@app.post("/api/sessions/{session_id}/feedback")
+def generate_session_feedback(session_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if current_user.role not in ["doctor", "admin"]:
+        raise HTTPException(status_code=403, detail="Doctors/Admins only")
+        
+    session = db.query(ResearchSession).filter(ResearchSession.session_id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    prompt = f"""
+    You are an expert Arabic reading education specialist. 
+    Write a short, 3-sentence feedback report in Arabic for the parents based on the student's reading session.
+    
+    Student Data:
+    - Accuracy: {session.accuracy_percent}%
+    - Reading Speed (WPM): {session.wpm}
+    - Comprehension Score: {session.comprehension_score}
+    - Mistakes made: {session.error_tags}
+    
+    The tone should be encouraging but professional. Only return the Arabic feedback text. Do not include any English or JSON formatting.
+    """
+    
+    try:
+        chat_completion = groq_client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": "You are a helpful AI assistant designed to write professional Arabic feedback reports."},
+                {"role": "user", "content": prompt}
+            ],
+            model="llama-3.3-70b-versatile",  # If this fails, change to "mixtral-8x7b-32768"
+        )
+        
+        feedback_text = chat_completion.choices[0].message.content
+        return {"feedback": feedback_text}
+
+    except Exception as e:
+        print("Feedback Generation Error:", e)
+        raise HTTPException(status_code=500, detail="Failed to generate feedback with AI.")
