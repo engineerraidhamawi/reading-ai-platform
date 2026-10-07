@@ -24,9 +24,13 @@ export default function Dashboard() {
   const [showPassageForm, setShowPassageForm] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
 
-  // NEW: Readability Score States
+  // Readability Score States
   const [readabilityScore, setReadabilityScore] = useState<any>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
+
+  // NEW: AI Feedback States
+  const [feedback, setFeedback] = useState<{ [key: string]: string }>({})
+  const [generatingFeedback, setGeneratingFeedback] = useState<string | null>(null)
 
   const fetchSessions = useCallback(async () => {
     const token = localStorage.getItem('token')
@@ -102,7 +106,6 @@ export default function Dashboard() {
     }
   }
 
-  // NEW: Analyze Readability Function
   const handleAnalyzeReadability = async () => {
     if (!newPassage) return alert('Please type a passage first.')
     setIsAnalyzing(true)
@@ -132,7 +135,7 @@ export default function Dashboard() {
       
       setNewPassage(''); setNewGrade('الصف الأول'); setQuestions(buildEmptyQuestions(4))
       setShowPassageForm(false)
-      setReadabilityScore(null) // Reset score on save
+      setReadabilityScore(null)
       alert('تم إضافة النص والأسئلة بنجاح!')
       fetchPassages()
     } catch (err: any) {
@@ -156,6 +159,20 @@ export default function Dashboard() {
       await axios.delete(`https://reading-ai-platform.onrender.com/api/sessions/${id}`, { headers: { Authorization: `Bearer ${token}` } })
       fetchSessions()
     } catch (err) { alert('Failed to delete session') }
+  }
+
+  // NEW: AI Feedback Generator Function
+  const handleGenerateFeedback = async (sessionId: string) => {
+    setGeneratingFeedback(sessionId)
+    const token = localStorage.getItem('token')
+    try {
+      const res = await axios.post(`https://reading-ai-platform.onrender.com/api/sessions/${sessionId}/feedback`, {}, { headers: { Authorization: `Bearer ${token}` } })
+      setFeedback({ ...feedback, [sessionId]: res.data.feedback })
+    } catch (err) {
+      alert('Failed to generate feedback.')
+    } finally {
+      setGeneratingFeedback(null)
+    }
   }
 
   const handlePrintReport = (studentName: string) => {
@@ -358,10 +375,24 @@ export default function Dashboard() {
                             <div className="bg-white/60 rounded-md p-2 border border-purple-50 break-words">
                               <p className="italic mb-2 block">"{session.asr_transcript}"</p>
                               {session.audio_file_id && (<audio controls src={session.audio_file_id} className="w-full h-8 mt-1">Your browser does not support the audio element.</audio>)}
+                              
+                              {/* NEW: AI Feedback Display */}
+                              {feedback[session.session_id] && (
+                                <div className="mt-2 bg-indigo-50 p-2 rounded-md border border-indigo-100 text-indigo-800 text-[10px] leading-relaxed">
+                                  <span className="font-bold">تقرير الذكاء الاصطناعي: </span>
+                                  {feedback[session.session_id]}
+                                </div>
+                              )}
                             </div>
                           </td>
                           <td className="py-3 px-3 text-center">
-                            <button onClick={() => handleDeleteSession(session.session_id)} className="text-red-500 hover:text-red-700 text-lg">🗑️</button>
+                            <div className="flex flex-col gap-2 items-center">
+                              {/* NEW: AI Feedback Button */}
+                              <button onClick={() => handleGenerateFeedback(session.session_id)} disabled={generatingFeedback === session.session_id} className="bg-indigo-500 text-white px-2 py-1 rounded-lg text-[10px] hover:bg-indigo-600 disabled:opacity-50 w-full">
+                                {generatingFeedback === session.session_id ? '⏳...' : '🤖 تقرير AI'}
+                              </button>
+                              <button onClick={() => handleDeleteSession(session.session_id)} className="text-red-500 hover:text-red-700 text-lg">🗑️</button>
+                            </div>
                           </td>
                         </tr>
                       )
@@ -401,7 +432,7 @@ export default function Dashboard() {
                   <label className="block text-xs font-bold text-purple-800 mb-1">نص القراءة</label>
                   <textarea value={newPassage} onChange={(e) => setNewPassage(e.target.value)} placeholder="اكتب النص هنا أو اضغط توليد بالذكاء الاصطناعي..." className="p-2 rounded-lg bg-white border border-purple-100 focus:ring-1 focus:ring-purple-400 h-20 text-xs text-gray-900 w-full" required />
                   
-                  {/* NEW: Readability Analysis UI */}
+                  {/* Readability Analysis UI */}
                   <div className="flex items-center gap-2 mt-2">
                     <button type="button" onClick={handleAnalyzeReadability} disabled={isAnalyzing} className="bg-cyan-600 text-white px-3 py-1.5 rounded-md font-bold text-[10px] hover:bg-cyan-700 transition disabled:opacity-50">
                       {isAnalyzing ? '⏳ جارٍ التحليل...' : '🔍 تحليل صعوبة النص'}
