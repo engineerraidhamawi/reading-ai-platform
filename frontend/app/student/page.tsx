@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from 'react'
 import axios from 'axios'
 
 export default function StudentReadingPage() {
-  const [phase, setPhase] = useState<'select' | 'reading' | 'quiz' | 'done' | 'practice'>('select')
+  const [phase, setPhase] = useState<'select' | 'reading' | 'quiz' | 'done' | 'practice' | 'dictionary'>('select')
   const [passages, setPassages] = useState([])
   const [selectedPassage, setSelectedPassage] = useState<any>(null)
   
@@ -31,8 +31,11 @@ export default function StudentReadingPage() {
   // Gamification Stats
   const [stats, setStats] = useState<any>(null)
 
-  // NEW: Font Size State
+  // Font Size State
   const [fontSize, setFontSize] = useState<'small' | 'medium' | 'large'>('medium')
+
+  // NEW: Word Bank State
+  const [wordbank, setWordbank] = useState<any>(null)
 
   useEffect(() => {
     const token = localStorage.getItem('token')
@@ -43,6 +46,11 @@ export default function StudentReadingPage() {
 
       axios.get('https://reading-ai-platform.onrender.com/api/student/stats', { headers: { Authorization: `Bearer ${token}` } })
         .then(res => setStats(res.data))
+        .catch(err => console.error(err))
+
+      // NEW: Fetch Wordbank
+      axios.get('https://reading-ai-platform.onrender.com/api/student/wordbank', { headers: { Authorization: `Bearer ${token}` } })
+        .then(res => setWordbank(res.data))
         .catch(err => console.error(err))
     }
   }, [])
@@ -110,6 +118,11 @@ export default function StudentReadingPage() {
       const mistakes = res.data.word_analysis.filter((w: any) => w.status !== 'correct').map((w: any) => w.word)
       setErrorWords(mistakes)
       
+      // Refresh wordbank after evaluation
+      axios.get('https://reading-ai-platform.onrender.com/api/student/wordbank', { headers: { Authorization: `Bearer ${token}` } })
+        .then(res2 => setWordbank(res2.data))
+        .catch(err => console.error(err))
+
       setPhase('done')
     } catch (err) {
       setStatus('حدث خطأ أثناء الإرسال.')
@@ -184,7 +197,7 @@ export default function StudentReadingPage() {
       <div className="bg-white/80 backdrop-blur-xl border border-white/60 p-8 rounded-3xl shadow-xl max-w-2xl w-full">
         <h1 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-pink-600 text-center mb-4">حصة القراءة</h1>
         
-        {/* NEW: Font Size Adjuster */}
+        {/* Font Size Adjuster */}
         <div className="flex justify-end gap-1 mb-4">
           <button 
             onClick={() => setFontSize('small')} 
@@ -244,6 +257,11 @@ export default function StudentReadingPage() {
               </div>
             )}
 
+            {/* NEW: Dictionary Button */}
+            <button onClick={() => setPhase('dictionary')} className="bg-white/60 border border-purple-200 text-purple-700 px-4 py-2 rounded-lg font-bold text-xs hover:bg-white/80 transition mb-4">
+              📚 قاموسي (My Dictionary)
+            </button>
+
             {passages.map((p: any) => (
               <button key={p.id} onClick={() => { setSelectedPassage(p); setPhase('reading') }} className="bg-white hover:bg-gray-50 border border-purple-100 p-4 rounded-2xl text-right transition">
                 <span className="text-xs text-purple-600 block font-bold">{p.level}</span>
@@ -254,10 +272,65 @@ export default function StudentReadingPage() {
           </div>
         )}
 
+        {/* NEW: Dictionary Phase */}
+        {phase === 'dictionary' && (
+          <div className="flex flex-col gap-4">
+            <button onClick={() => setPhase('select')} className="text-purple-600 text-xs font-bold self-start hover:underline mb-2">
+              ⬅️ رجوع لاختيار النص
+            </button>
+            <h2 className="text-xl font-bold text-center text-gray-900">قاموسي 📚</h2>
+            
+            {wordbank && (
+              <>
+                {/* Mastered Words */}
+                <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-2xl">
+                  <h3 className="text-sm font-bold text-emerald-700 mb-3">كلمات أتقنتها ✅ ({wordbank.mastered.length})</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {wordbank.mastered.length > 0 ? (
+                      wordbank.mastered.map((w: any, idx: number) => (
+                        <span key={idx} className="bg-white px-3 py-1 rounded-lg text-sm font-bold text-emerald-600 border border-emerald-200">{w.word}</span>
+                      ))
+                    ) : (
+                      <p className="text-xs text-gray-400">لم تتقن أي كلمات بعد. اقرأ بشكل صحيح 3 مرات لتتقن الكلمة!</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Practicing Words */}
+                <div className="bg-amber-50 border border-amber-100 p-4 rounded-2xl">
+                  <h3 className="text-sm font-bold text-amber-700 mb-3">كلمات أتدرب عليها 🔄 ({wordbank.practicing.length})</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {wordbank.practicing.length > 0 ? (
+                      wordbank.practicing.map((w: any, idx: number) => (
+                        <span key={idx} className="bg-white px-3 py-1 rounded-lg text-sm font-bold text-amber-600 border border-amber-200">{w.word}</span>
+                      ))
+                    ) : (
+                      <p className="text-xs text-gray-400">لا توجد كلمات قيد التدرب حالياً.</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Struggling Words */}
+                <div className="bg-red-50 border border-red-100 p-4 rounded-2xl">
+                  <h3 className="text-sm font-bold text-red-700 mb-3">كلمات أحتاج لمساعدة فيها ❌ ({wordbank.struggling.length})</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {wordbank.struggling.length > 0 ? (
+                      wordbank.struggling.map((w: any, idx: number) => (
+                        <span key={idx} className="bg-white px-3 py-1 rounded-lg text-sm font-bold text-red-600 border border-red-200">{w.word}</span>
+                      ))
+                    ) : (
+                      <p className="text-xs text-gray-400">أحسنت! لا توجد كلمات صعبة حالياً.</p>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
         {phase === 'reading' && selectedPassage && (
           <>
             <div className="bg-purple-50 border border-purple-100 p-6 rounded-2xl mb-8 text-center">
-              {/* NEW: Dynamic Font Size for Passage */}
               <p className={`${fontSize === 'small' ? 'text-lg' : fontSize === 'medium' ? 'text-2xl' : 'text-4xl'} leading-loose text-gray-900 font-medium`}>{selectedPassage.text}</p>
             </div>
             <div className="flex flex-col items-center gap-4">
@@ -279,7 +352,6 @@ export default function StudentReadingPage() {
             <h2 className="text-xl font-bold mb-6 text-center text-gray-900">اختبار الفهم القرائي</h2>
             <div className="flex flex-col gap-8">
               <div>
-                {/* NEW: Dynamic Font Size for Question 1 */}
                 <p className={`${fontSize === 'small' ? 'text-base' : fontSize === 'medium' ? 'text-xl' : 'text-3xl'} font-bold mb-3 text-gray-900`}>1. {selectedPassage.question1}</p>
                 <div className="flex gap-4 flex-wrap">
                   <button onClick={() => setAns1(selectedPassage.option1a)} className={`px-5 py-2 rounded-xl border font-bold ${ans1===selectedPassage.option1a ? 'bg-purple-600 text-white' : 'bg-white text-gray-900 border-purple-200'}`}>{selectedPassage.option1a}</button>
@@ -288,8 +360,7 @@ export default function StudentReadingPage() {
                 </div>
               </div>
               <div>
-                {/* NEW: Dynamic Font Size for Question 2 */}
-                <p className={`${fontSize === 'small' ? 'text-sm' : fontSize === 'medium' ? 'text-base' : 'text-lg'} font-bold mb-3 text-gray-900`}>2. {selectedPassage.question2}</p>
+                <p className={`${fontSize === 'small' ? 'text-base' : fontSize === 'medium' ? 'text-xl' : 'text-3xl'} font-bold mb-3 text-gray-900`}>2. {selectedPassage.question2}</p>
                 <div className="flex gap-4 flex-wrap">
                   <button onClick={() => setAns2(selectedPassage.option2a)} className={`px-5 py-2 rounded-xl border font-bold ${ans2===selectedPassage.option2a ? 'bg-purple-600 text-white' : 'bg-white text-gray-900 border-purple-200'}`}>{selectedPassage.option2a}</button>
                   <button onClick={() => setAns2(selectedPassage.option2b)} className={`px-5 py-2 rounded-xl border font-bold ${ans2===selectedPassage.option2b ? 'bg-purple-600 text-white' : 'bg-white text-gray-900 border-purple-200'}`}>{selectedPassage.option2b}</button>
