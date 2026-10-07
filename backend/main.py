@@ -5,7 +5,7 @@ from fastapi.responses import StreamingResponse, FileResponse
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
-from database import Base, engine, SessionLocal, User, ResearchSession, Passage, get_db
+from database import Base, engine, SessionLocal, User, ResearchSession, Passage, WordBank, get_db
 from groq import Groq
 import datetime
 import difflib
@@ -178,9 +178,6 @@ class GeneratePromptRequest(BaseModel):
     grade_level: str
     num_questions: int = 4
 
-# ==========================================
-# 100% RELIABLE LOCAL PASSAGE GENERATOR
-# ==========================================
 @app.post("/api/passages/generate")
 async def generate_ai_passage(request: GeneratePromptRequest, current_user: User = Depends(get_current_user)):
     if current_user.role not in ["doctor", "admin"]:
@@ -189,7 +186,6 @@ async def generate_ai_passage(request: GeneratePromptRequest, current_user: User
     grade = request.grade_level
     num_qs = request.num_questions
     
-    # 1. Generate Text based on Grade
     if "الأول" in grade or "الثاني" in grade:
         text = "القط يحب اللعب بالكرة. هو يشرب الحليب كل صباح. القط صغير ولطيف. هو ينام على السرير."
     elif "الثالث" in grade or "الرابع" in grade:
@@ -197,11 +193,9 @@ async def generate_ai_passage(request: GeneratePromptRequest, current_user: User
     else:
         text = "تعتبر الصحراء العربية بيئة قاسية لكنها تزخر بالحياة. تتكيف الحيوانات فيها مثل الجمل والثعلب الفنك مع قلة الماء وحرارة الشمس. لكل حيوان صفات خاصة تساعده على البقاء في هذه الظروف الصعبة."
         
-    # 2. Generate Questions dynamically
     words = text.split()
     questions = []
     
-    # Question 1: Always about the main idea
     questions.append({
         "q": "ما هو الموضوع الرئيسي الذي يتحدث عنه النص؟",
         "o1": "النص يتحدث عن " + words[0] + " " + words[1],
@@ -210,7 +204,6 @@ async def generate_ai_passage(request: GeneratePromptRequest, current_user: User
         "ans": "النص يتحدث عن " + words[0] + " " + words[1]
     })
     
-    # Question 2: Vocabulary/Detail
     if len(words) > 4:
         target_word = words[3].replace(".", "").replace("،", "")
         questions.append({
@@ -221,7 +214,6 @@ async def generate_ai_passage(request: GeneratePromptRequest, current_user: User
             "ans": target_word
         })
         
-    # Question 3+: Fill in the blank
     if num_qs >= 3 and len(words) > 5:
         blank_word = words[4].replace(".", "").replace("،", "")
         questions.append({
@@ -232,13 +224,13 @@ async def generate_ai_passage(request: GeneratePromptRequest, current_user: User
             "ans": blank_word
         })
         
-    # Ensure we only return the requested number of questions
     questions = questions[:num_qs]
         
     return {
         "text": text,
         "questions": questions
     }
+
 @app.get("/api/sessions")
 def get_sessions(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     query = db.query(ResearchSession, User.username).join(User, ResearchSession.student_id == User.id)
@@ -327,6 +319,27 @@ async def upload_audio(
         stars=stars
     )
     db.add(new_session)
+    
+    # ==========================================
+    # NEW: SAVE TO WORD BANK
+    # ==========================================
+    for w in word_analysis:
+        if w["type"] in ["correct", "حذف", "إبدال"]:
+            word_entry = db.query(WordBank).filter(WordBank.student_id == current_user.id, WordBank.word == w["word"]).first()
+            
+            if not word_entry:
+                word_entry = WordBank(student_id=current_user.id, word=w["word"])
+                db.add(word_entry)
+            
+            if w["status"] == "correct":
+                word_entry.times_correct += 1
+            else:
+                word_entry.times_wrong += 1
+                
+            if word_entry.times_correct >= 3:
+                word_entry.is_mastered = True
+    # ==========================================
+    
     db.commit()
     
     return {
@@ -456,7 +469,6 @@ def get_student_stats(current_user: User = Depends(get_current_user), db: Sessio
     max_wpm = max([s.wpm for s in sessions if s.wpm is not None] or [0])
     max_accuracy = max([s.accuracy_percent for s in sessions if s.accuracy_percent is not None] or [0])
     
-    # Calculate Streak (consecutive days)
     dates = sorted([s.session_date.date() for s in sessions], reverse=True)
     streak = 0
     today = datetime.date.today()
@@ -469,7 +481,6 @@ def get_student_stats(current_user: User = Depends(get_current_user), db: Sessio
             else:
                 break
 
-    # Calculate Badges
     badges = []
     if streak >= 3:
         badges.append({"icon": "🔥", "name": "المواظبة", "desc": "قرأت 3 أيام متتالية"})
@@ -502,7 +513,6 @@ async def analyze_readability(text: str = Form(...), current_user: User = Depend
     if num_words == 0:
         return {"score": 0, "level": "غير معروف"}
     
-    # Count sentences (split by ., !, ?, or Arabic comma)
     sentences = re.split(r'[.!?،؛]', text)
     num_sentences = len([s for s in sentences if s.strip()])
     if num_sentences == 0: num_sentences = 1
@@ -510,18 +520,15 @@ async def analyze_readability(text: str = Form(...), current_user: User = Depend
     avg_word_length = sum(len(w) for w in words) / num_words
     avg_sentence_length = num_words / num_sentences
     
-    # Count complex Arabic letters (requires specific mouth movements)
     complex_letters = re.findall(r'[ثذظضخغق]', text)
     complex_ratio = (len(complex_letters) / num_words) * 100
     
-    # Calculate Score (1-10 scale)
     score = 1
     score += (avg_word_length - 3) * 0.8
     score += (avg_sentence_length - 5) * 0.3
     score += complex_ratio * 0.2
-    score = max(1, min(10, round(score))) # Keep it between 1 and 10
+    score = max(1, min(10, round(score)))
     
-    # Determine Level
     if score <= 3: level = "مبتدئ (الصف الأول-الثاني)"
     elif score <= 6: level = "متوسط (الصف الثالث-الرابع)"
     else: level = "متقدم (الصف الخامس-السادس)"
@@ -553,7 +560,6 @@ def generate_session_feedback(session_id: str, current_user: User = Depends(get_
     wpm = session.wpm
     errors = session.error_tags
     
-    # Sentence 1: Overall performance based on accuracy
     if acc >= 90:
         s1 = "أداء الطالب ممتاز جداً في هذه الجلسة، حيث أظهر دقة عالية في قراءة الكلمات."
     elif acc >= 75:
@@ -561,7 +567,6 @@ def generate_session_feedback(session_id: str, current_user: User = Depends(get_
     else:
         s1 = "يحتاج الطالب إلى مزيد من التدريب والتركيز، حيث كانت الدقة أقل من المتوقع."
         
-    # Sentence 2: Speed assessment
     if wpm >= 100:
         s2 = "سرعة القراءة ممتازة (" + str(wpm) + " كلمة بالدقيقة)، مما يدل على طلاقة جيدة."
     elif wpm >= 60:
@@ -569,7 +574,6 @@ def generate_session_feedback(session_id: str, current_user: User = Depends(get_
     else:
         s2 = "سرعة القراءة بطيئة نوعاً ما (" + str(wpm) + " كلمة بالدقيقة)، يفضل التدرب على قراءة أسرع."
         
-    # Sentence 3: Error analysis
     if "لا توجد أخطاء" in errors or not errors:
         s3 = "لم يتم رصد أخطاء واضحة في النطق، استمر على هذا التميز."
     else:
@@ -582,3 +586,23 @@ def generate_session_feedback(session_id: str, current_user: User = Depends(get_
             
     feedback_text = s1 + " " + s2 + " " + s3
     return {"feedback": feedback_text}
+
+# ==========================================
+# STUDENT WORD BANK ENDPOINT
+# ==========================================
+@app.get("/api/student/wordbank")
+def get_student_wordbank(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if current_user.role != "student": 
+        raise HTTPException(status_code=403, detail="Students only")
+        
+    words = db.query(WordBank).filter(WordBank.student_id == current_user.id).all()
+    
+    mastered = [{"word": w.word, "correct": w.times_correct, "wrong": w.times_wrong} for w in words if w.is_mastered]
+    practicing = [{"word": w.word, "correct": w.times_correct, "wrong": w.times_wrong} for w in words if not w.is_mastered and w.times_correct > 0]
+    struggling = [{"word": w.word, "correct": w.times_correct, "wrong": w.times_wrong} for w in words if not w.is_mastered and w.times_correct == 0]
+    
+    return {
+        "mastered": mastered,
+        "practicing": practicing,
+        "struggling": struggling
+    }
