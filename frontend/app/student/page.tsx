@@ -15,7 +15,7 @@ export default function StudentReadingPage() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
 
-  // NEW: State for accurate WPM
+  // State for accurate WPM
   const [recordingDuration, setRecordingDuration] = useState(0)
   const startTimeRef = useRef<number | null>(null)
 
@@ -28,11 +28,19 @@ export default function StudentReadingPage() {
   const [practiceAnswers, setPracticeAnswers] = useState<string[]>([])
   const [errorWords, setErrorWords] = useState<string[]>([])
 
+  // NEW: State for Gamification Stats
+  const [stats, setStats] = useState<any>(null)
+
   useEffect(() => {
     const token = localStorage.getItem('token')
     if (token) {
       axios.get('https://reading-ai-platform.onrender.com/api/passages', { headers: { Authorization: `Bearer ${token}` } })
         .then(res => setPassages(res.data))
+        .catch(err => console.error(err))
+
+      // NEW: Fetch Student Stats
+      axios.get('https://reading-ai-platform.onrender.com/api/student/stats', { headers: { Authorization: `Bearer ${token}` } })
+        .then(res => setStats(res.data))
         .catch(err => console.error(err))
     }
   }, [])
@@ -52,13 +60,11 @@ export default function StudentReadingPage() {
           setStatus('تم التسجيل. اضغط "التالي" للانتقال إلى الاختبار')
           stream.getTracks().forEach(track => track.stop())
           
-          // NEW: Calculate exact duration
           if (startTimeRef.current) {
             const durationInSec = (Date.now() - startTimeRef.current) / 1000
             setRecordingDuration(durationInSec)
           }
         }
-        // NEW: Record start time
         startTimeRef.current = Date.now()
         mediaRecorder.start(1000)
         setIsRecording(true)
@@ -89,7 +95,7 @@ export default function StudentReadingPage() {
     formData.append('audio', audioBlob, 'recording.webm')
     formData.append('passage', selectedPassage.text)
     formData.append('comprehension_score', score)
-    formData.append('duration_seconds', recordingDuration.toString()) // NEW: Send real duration
+    formData.append('duration_seconds', recordingDuration.toString())
 
     try {
       const res = await axios.post('https://reading-ai-platform.onrender.com/api/sessions/upload', formData, {
@@ -168,7 +174,7 @@ export default function StudentReadingPage() {
     setErrorWords([])
     setPracticeQuestions([])
     setPracticeAnswers([])
-    setRecordingDuration(0) // NEW: Reset duration
+    setRecordingDuration(0)
   }
 
   return (
@@ -179,6 +185,41 @@ export default function StudentReadingPage() {
         {phase === 'select' && (
           <div className="flex flex-col gap-4">
             <h2 className="text-xl font-bold text-center text-gray-900">اختر النص للقراءة</h2>
+            
+            {/* NEW: Gamification Stats UI */}
+            {stats && (
+              <div className="bg-purple-50 border border-purple-100 p-4 rounded-2xl mb-4">
+                <div className="grid grid-cols-3 gap-2 text-center mb-4">
+                  <div>
+                    <p className="text-2xl font-extrabold text-purple-600">{stats.streak}</p>
+                    <p className="text-[10px] text-gray-500 font-bold">أيام متتالية 🔥</p>
+                  </div>
+                  <div>
+                    <p className="text-2xl font-extrabold text-pink-600">{stats.max_wpm}</p>
+                    <p className="text-[10px] text-gray-500 font-bold">أعلى سرعة 🚀</p>
+                  </div>
+                  <div>
+                    <p className="text-2xl font-extrabold text-emerald-600">{stats.max_accuracy}%</p>
+                    <p className="text-[10px] text-gray-500 font-bold">أعلى دقة 🎯</p>
+                  </div>
+                </div>
+                
+                <h3 className="text-sm font-bold text-gray-900 mb-2 text-center">إنجازاتك 🏆</h3>
+                <div className="flex flex-wrap gap-2 justify-center">
+                  {stats.badges.length > 0 ? (
+                    stats.badges.map((badge: any, idx: number) => (
+                      <div key={idx} className="bg-white p-2 rounded-xl shadow-sm border border-yellow-100 flex flex-col items-center w-20">
+                        <span className="text-2xl">{badge.icon}</span>
+                        <span className="text-[10px] font-bold text-gray-800 mt-1 text-center">{badge.name}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-xs text-gray-400 text-center">لا توجد أوسمة بعد. استمر في القراءة لكسب الأوسمة!</p>
+                  )}
+                </div>
+              </div>
+            )}
+
             {passages.map((p: any) => (
               <button key={p.id} onClick={() => { setSelectedPassage(p); setPhase('reading') }} className="bg-white hover:bg-gray-50 border border-purple-100 p-4 rounded-2xl text-right transition">
                 <span className="text-xs text-purple-600 block font-bold">{p.level}</span>
