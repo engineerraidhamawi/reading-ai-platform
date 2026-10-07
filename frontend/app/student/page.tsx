@@ -34,7 +34,7 @@ export default function StudentReadingPage() {
   // Font Size State
   const [fontSize, setFontSize] = useState<'small' | 'medium' | 'large'>('medium')
 
-  // NEW: Word Bank State
+  // Word Bank State
   const [wordbank, setWordbank] = useState<any>(null)
 
   useEffect(() => {
@@ -48,7 +48,7 @@ export default function StudentReadingPage() {
         .then(res => setStats(res.data))
         .catch(err => console.error(err))
 
-      // NEW: Fetch Wordbank
+      // Fetch Wordbank
       axios.get('https://reading-ai-platform.onrender.com/api/student/wordbank', { headers: { Authorization: `Bearer ${token}` } })
         .then(res => setWordbank(res.data))
         .catch(err => console.error(err))
@@ -190,6 +190,15 @@ export default function StudentReadingPage() {
     setPracticeQuestions([])
     setPracticeAnswers([])
     setRecordingDuration(0)
+    
+    // Refresh stats and wordbank when returning home
+    const token = localStorage.getItem('token')
+    if (token) {
+      axios.get('https://reading-ai-platform.onrender.com/api/student/stats', { headers: { Authorization: `Bearer ${token}` } })
+        .then(res => setStats(res.data))
+      axios.get('https://reading-ai-platform.onrender.com/api/student/wordbank', { headers: { Authorization: `Bearer ${token}` } })
+        .then(res => setWordbank(res.data))
+    }
   }
 
   return (
@@ -220,59 +229,86 @@ export default function StudentReadingPage() {
         </div>
 
         {phase === 'select' && (
-          <div className="flex flex-col gap-4">
-            <h2 className="text-xl font-bold text-center text-gray-900">اختر النص للقراءة</h2>
+          <div className="flex flex-col gap-6">
+            <div className="text-center">
+              <h2 className="text-xl font-bold text-gray-900">مستوى اللغه</h2>
+              <p className="text-purple-500 text-sm font-medium">انجازاتي في اللغه</p>
+            </div>
             
-            {/* Gamification Stats UI */}
+            {/* Top Stats Cards */}
             {stats && (
-              <div className="bg-purple-50 border border-purple-100 p-4 rounded-2xl mb-4">
-                <div className="grid grid-cols-3 gap-2 text-center mb-4">
-                  <div>
-                    <p className="text-2xl font-extrabold text-purple-600">{stats.streak}</p>
-                    <p className="text-[10px] text-gray-500 font-bold">أيام متتالية 🔥</p>
-                  </div>
-                  <div>
-                    <p className="text-2xl font-extrabold text-pink-600">{stats.max_wpm}</p>
-                    <p className="text-[10px] text-gray-500 font-bold">أعلى سرعة 🚀</p>
-                  </div>
-                  <div>
-                    <p className="text-2xl font-extrabold text-emerald-600">{stats.max_accuracy}%</p>
-                    <p className="text-[10px] text-gray-500 font-bold">أعلى دقة 🎯</p>
-                  </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-purple-50 border border-purple-100 p-4 rounded-2xl text-center">
+                  <p className="text-2xl font-extrabold text-purple-600">{stats.max_accuracy}%</p>
+                  <p className="text-[10px] text-gray-500 font-bold mt-1">مستوى الإتقان</p>
                 </div>
-                
-                <h3 className="text-sm font-bold text-gray-900 mb-2 text-center">إنجازاتك 🏆</h3>
-                <div className="flex flex-wrap gap-2 justify-center">
-                  {stats.badges.length > 0 ? (
-                    stats.badges.map((badge: any, idx: number) => (
-                      <div key={idx} className="bg-white p-2 rounded-xl shadow-sm border border-yellow-100 flex flex-col items-center w-20">
-                        <span className="text-2xl">{badge.icon}</span>
-                        <span className="text-[10px] font-bold text-gray-800 mt-1 text-center">{badge.name}</span>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-xs text-gray-400 text-center">لا توجد أوسمة بعد. استمر في القراءة لكسب الأوسمة!</p>
-                  )}
+                <div className="bg-pink-50 border border-pink-100 p-4 rounded-2xl text-center">
+                  <p className="text-2xl font-extrabold text-pink-600">{wordbank ? (wordbank.mastered.length + wordbank.practicing.length + wordbank.struggling.length) : 0}</p>
+                  <p className="text-[10px] text-gray-500 font-bold mt-1">حصيلة الكلمات</p>
+                </div>
+                <div className="bg-red-50 border border-red-100 p-4 rounded-2xl text-center">
+                  <p className="text-2xl font-extrabold text-red-600">{wordbank ? wordbank.struggling.length : 0}</p>
+                  <p className="text-[10px] text-gray-500 font-bold mt-1">الأخطاء الحالية</p>
                 </div>
               </div>
             )}
 
-            {/* NEW: Dictionary Button */}
-            <button onClick={() => setPhase('dictionary')} className="bg-white/60 border border-purple-200 text-purple-700 px-4 py-2 rounded-lg font-bold text-xs hover:bg-white/80 transition mb-4">
-              📚 قاموسي (My Dictionary)
-            </button>
+            {/* My Dictionary Section Preview */}
+            <div className="bg-white border border-gray-100 p-4 rounded-2xl shadow-sm">
+              <div className="flex justify-between items-center mb-3">
+                <h3 className="text-sm font-bold text-gray-900">كلماتي <span className="text-[10px] text-gray-400">(My Dictionary)</span></h3>
+                <button onClick={() => setPhase('dictionary')} className="text-purple-600 text-[10px] font-bold hover:underline">
+                  عرض الكل
+                </button>
+              </div>
+              
+              {wordbank && wordbank.mastered.length > 0 && (
+                <div className="mb-3">
+                  <p className="text-[10px] font-bold text-emerald-600 mb-2">كلمات أتقنتها ✅</p>
+                  <div className="flex flex-wrap gap-2">
+                    {wordbank.mastered.slice(0, 8).map((w: any, idx: number) => (
+                      <span key={idx} className="bg-emerald-50 px-3 py-1 rounded-lg text-xs font-bold text-emerald-700 border border-emerald-100">{w.word}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
 
-            {passages.map((p: any) => (
-              <button key={p.id} onClick={() => { setSelectedPassage(p); setPhase('reading') }} className="bg-white hover:bg-gray-50 border border-purple-100 p-4 rounded-2xl text-right transition">
-                <span className="text-xs text-purple-600 block font-bold">{p.level}</span>
-                <span className="text-gray-900 font-medium">{p.text.substring(0, 50)}...</span>
-              </button>
-            ))}
-            {passages.length === 0 && <p className="text-center text-gray-500 font-medium">لا توجد نصوص متاحة حالياً.</p>}
+              {wordbank && wordbank.struggling.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-bold text-red-600 mb-2">أحتاج لمساعدة فيها ❌</p>
+                  <div className="flex flex-wrap gap-2">
+                    {wordbank.struggling.slice(0, 8).map((w: any, idx: number) => (
+                      <span key={idx} className="bg-red-50 px-3 py-1 rounded-lg text-xs font-bold text-red-700 border border-red-100">{w.word}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {wordbank && wordbank.mastered.length === 0 && wordbank.struggling.length === 0 && (
+                <p className="text-xs text-gray-400 text-center py-4">لا توجد كلمات في قاموسك بعد. ابدأ القراءة لتجميع الكلمات!</p>
+              )}
+            </div>
+
+            {/* Reading Assignments */}
+            <div>
+              <h3 className="text-sm font-bold text-gray-900 mb-3">اختر النص للقراءة 📚</h3>
+              <div className="flex flex-col gap-3">
+                {passages.map((p: any) => (
+                  <button key={p.id} onClick={() => { setSelectedPassage(p); setPhase('reading') }} className="bg-white hover:bg-gray-50 border border-purple-100 p-4 rounded-2xl text-right transition flex justify-between items-center">
+                    <div>
+                      <span className="text-xs text-purple-600 block font-bold">{p.level}</span>
+                      <span className="text-gray-900 font-medium text-sm">{p.text.substring(0, 40)}...</span>
+                    </div>
+                    <span className="text-purple-300 text-xl">←</span>
+                  </button>
+                ))}
+                {passages.length === 0 && <p className="text-center text-gray-500 font-medium text-sm bg-white p-4 rounded-2xl">لا توجد نصوص متاحة حالياً.</p>}
+              </div>
+            </div>
           </div>
         )}
 
-        {/* NEW: Dictionary Phase */}
+        {/* Dictionary Phase */}
         {phase === 'dictionary' && (
           <div className="flex flex-col gap-4">
             <button onClick={() => setPhase('select')} className="text-purple-600 text-xs font-bold self-start hover:underline mb-2">
