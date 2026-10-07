@@ -524,7 +524,7 @@ async def analyze_readability(text: str = Form(...), current_user: User = Depend
     }
 
 # ==========================================
-# AI TEACHER FEEDBACK ENDPOINT
+# 100% RELIABLE LOCAL FEEDBACK ENGINE
 # ==========================================
 @app.post("/api/sessions/{session_id}/feedback")
 def generate_session_feedback(session_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -535,30 +535,34 @@ def generate_session_feedback(session_id: str, current_user: User = Depends(get_
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
         
-    prompt = f"""
-    You are an expert Arabic reading education specialist. 
-    Write a short, 3-sentence feedback report in Arabic for the parents based on the student's reading session.
+    acc = session.accuracy_percent
+    wpm = session.wpm
+    errors = session.error_tags
     
-    Student Data:
-    - Accuracy: {session.accuracy_percent}%
-    - Reading Speed (WPM): {session.wpm}
-    - Comprehension Score: {session.comprehension_score}
-    - Mistakes made: {session.error_tags}
-    
-    The tone should be encouraging but professional. Only return the Arabic feedback text. Do not include any English or JSON formatting.
-    """
-    
-    try:
-        chat_completion = groq_client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": "You are a helpful AI assistant designed to write professional Arabic feedback reports."},
-                {"role": "user", "content": prompt}
-            ],
-            model="llama-3.3-70b-versatile",  # If this fails, change to "mixtral-8x7b-32768"
-        )
+    # Sentence 1: Overall performance based on accuracy
+    if acc >= 90:
+        s1 = "أداء الطالب ممتاز جداً في هذه الجلسة، حيث أظهر دقة عالية في قراءة الكلمات."
+    elif acc >= 75:
+        s1 = "أداء الطالب جيد، مع وجود بعض الأخطاء البسيطة التي يمكن تحسينها بالتدريب."
+    else:
+        s1 = "يحتاج الطالب إلى مزيد من التدريب والتركيز، حيث كانت الدقة أقل من المتوقع."
         
-        feedback_text = chat_completion.choices[0].message.content
-        return {"feedback": feedback_text}
+    # Sentence 2: Speed assessment
+    if wpm >= 100:
+        s2 = f"سرعة القراءة ممتازة ({wpm} كلمة بالدقيقة)، مما يدل على طلاقة جيدة."
+    elif wpm >= 60:
+        s2 = f"سرعة القراءة مناسبة ({wpm} كلمة بالدقيقة)، ويحتاج الطالب لزيادة طلاقته تدريجياً."
+    else:
+        s2 = f"سرعة القراءة بطيئة نوعاً ما ({wpm} كلمة بالدقيقة)، يفضل التدرب على قراءة أسرع."
+        
+    # Sentence 3: Error analysis
+    if "لا توجد أخطاء" in errors or not errors:
+        s3 = "لم يتم رصد أخطاء واضحة في النطق، استمر على هذا التميز."
+    else:
+        error_words = [e.split(':')[1] for e in errors.split(';') if ':' in e]
+        if error_words:
+            sample = "، ".join(error_words[:2])
+            s3 = f"يلاحظ وجود أخطاء في نطق بعض الكلمات مثل:
 
     except Exception as e:
         print("Feedback Generation Error:", e)
