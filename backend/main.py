@@ -208,14 +208,22 @@ async def generate_ai_passage(request: GeneratePromptRequest, current_user: User
         Ensure there are exactly {request.num_questions} question objects in the array.
         """
         
-                chat_completion = groq_client.chat.completions.create(
+        chat_completion = groq_client.chat.completions.create(
             messages=[
                 {"role": "system", "content": "You are a helpful AI assistant designed to output JSON."},
                 {"role": "user", "content": prompt}
             ],
-            model="llama-3.3-70b-versatile",  # <-- THE ONLY WORKING MODEL ON GROQ
+            model="llama-3.3-70b-versatile",
             response_format={"type": "json_object"}
         )
+        
+        generated_data = json.loads(chat_completion.choices[0].message.content)
+        
+        return generated_data
+
+    except Exception as e:
+        print("Groq Generation Error:", e)
+        raise HTTPException(status_code=500, detail="Failed to generate passage with AI.")
         
         generated_data = json.loads(chat_completion.choices[0].message.content)
         
