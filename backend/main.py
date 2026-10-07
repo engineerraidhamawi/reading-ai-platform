@@ -419,6 +419,56 @@ def delete_user(user_id: int, current_user: User = Depends(get_current_user), db
 
 @app.put("/api/users/{user_id}/reset-password")
 def reset_password(user_id: int, new_password: str = Form(...), current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    # ==========================================
+# STUDENT GAMIFICATION & STATS ENDPOINT
+# ==========================================
+@app.get("/api/student/stats")
+def get_student_stats(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if current_user.role != "student": 
+        raise HTTPException(status_code=403, detail="Students only")
+    
+    sessions = db.query(ResearchSession).filter(ResearchSession.student_id == current_user.id).all()
+    
+    if not sessions:
+        return {"total_sessions": 0, "three_star_count": 0, "max_wpm": 0, "max_accuracy": 0, "streak": 0, "badges": []}
+        
+    total_sessions = len(sessions)
+    three_star_count = len([s for s in sessions if s.stars == 3])
+    max_wpm = max([s.wpm for s in sessions if s.wpm is not None] or [0])
+    max_accuracy = max([s.accuracy_percent for s in sessions if s.accuracy_percent is not None] or [0])
+    
+    # Calculate Streak (consecutive days)
+    dates = sorted([s.session_date.date() for s in sessions], reverse=True)
+    streak = 0
+    today = datetime.date.today()
+    
+    if dates and (dates[0] == today or dates[0] == today - datetime.timedelta(days=1)):
+        streak = 1
+        for i in range(len(dates)-1):
+            if dates[i] - dates[i+1] == datetime.timedelta(days=1):
+                streak += 1
+            else:
+                break
+
+    # Calculate Badges
+    badges = []
+    if streak >= 3:
+        badges.append({"icon": "🔥", "name": "المواظبة", "desc": "قرأت 3 أيام متتالية"})
+    if three_star_count >= 5:
+        badges.append({"icon": "⭐", "name": "قارئ ممتاز", "desc": "حصلت على 3 نجوم 5 مرات"})
+    if max_wpm >= 100:
+        badges.append({"icon": "🚀", "name": "سريع كالصاروخ", "desc": "وصلت لسرعة 100 كلمة بالدقيقة"})
+    if max_accuracy >= 95:
+        badges.append({"icon": "🎯", "name": "الإتقان", "desc": "حققت دقة 95% أو أكثر"})
+        
+    return {
+        "total_sessions": total_sessions,
+        "three_star_count": three_star_count,
+        "max_wpm": max_wpm,
+        "max_accuracy": round(max_accuracy, 1),
+        "streak": streak,
+        "badges": badges
+    }
     if current_user.role != "admin": raise HTTPException(status_code=403, detail="Admin only")
     user = db.query(User).filter(User.id == user_id).first()
     if user: user.hashed_password = pwd_context.hash(new_password); db.commit()
