@@ -1,5 +1,5 @@
 import os
-from sqlalchemy import create_engine, Column, String, Integer, Float, Boolean, DateTime, Text, ForeignKey, UniqueConstraint
+from sqlalchemy import create_engine, Column, String, Integer, Float, Boolean, DateTime, Text, ForeignKey, UniqueConstraint, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 import datetime
 from passlib.context import CryptContext
@@ -55,7 +55,7 @@ class Passage(Base):
     text = Column(Text)
     level = Column(String)
     created_by = Column(Integer, ForeignKey("users.id"))
-    assigned_to = Column(Integer, ForeignKey("users.id"), nullable=True) # NEW: Targeted Assignments
+    assigned_to = Column(Integer, ForeignKey("users.id"), nullable=True) # Targeted Assignments
     
     question1 = Column(Text, nullable=True)
     option1a = Column(String, nullable=True)
@@ -69,7 +69,7 @@ class Passage(Base):
     option2c = Column(String, nullable=True)
     answer2 = Column(String, nullable=True)
 
-# NEW: WordBank Table
+# WordBank Table
 class WordBank(Base):
     __tablename__ = "word_bank"
     id = Column(Integer, primary_key=True, index=True)
@@ -108,6 +108,17 @@ if not db.query(Passage).first():
 db.commit()
 db.close()
 print("Database ready!")
+
+# ==========================================
+# FORCE ADD NEW COLUMNS TO EXISTING TABLES
+# ==========================================
+with engine.connect() as connection:
+    try:
+        connection.execute(text("ALTER TABLE passages ADD COLUMN assigned_to INTEGER;"))
+        connection.commit()
+        print("Column 'assigned_to' added successfully.")
+    except Exception as e:
+        print("Column 'assigned_to' already exists or error:", e)
 
 def get_db():
     db = SessionLocal()
