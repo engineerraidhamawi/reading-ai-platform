@@ -208,12 +208,12 @@ async def generate_ai_passage(request: GeneratePromptRequest, current_user: User
         Ensure there are exactly {request.num_questions} question objects in the array.
         """
         
-        chat_completion = groq_client.chat.completions.create(
+                chat_completion = groq_client.chat.completions.create(
             messages=[
                 {"role": "system", "content": "You are a helpful AI assistant designed to output JSON."},
                 {"role": "user", "content": prompt}
             ],
-            model="llama3-8b-8192",
+            model="llama-3.3-70b-versatile",  # <-- THE ONLY WORKING MODEL ON GROQ
             response_format={"type": "json_object"}
         )
         
