@@ -549,11 +549,11 @@ def generate_session_feedback(session_id: str, current_user: User = Depends(get_
         
     # Sentence 2: Speed assessment
     if wpm >= 100:
-        s2 = f"سرعة القراءة ممتازة ({wpm} كلمة بالدقيقة)، مما يدل على طلاقة جيدة."
+        s2 = "سرعة القراءة ممتازة (" + str(wpm) + " كلمة بالدقيقة)، مما يدل على طلاقة جيدة."
     elif wpm >= 60:
-        s2 = f"سرعة القراءة مناسبة ({wpm} كلمة بالدقيقة)، ويحتاج الطالب لزيادة طلاقته تدريجياً."
+        s2 = "سرعة القراءة مناسبة (" + str(wpm) + " كلمة بالدقيقة)، ويحتاج الطالب لزيادة طلاقته تدريجياً."
     else:
-        s2 = f"سرعة القراءة بطيئة نوعاً ما ({wpm} كلمة بالدقيقة)، يفضل التدرب على قراءة أسرع."
+        s2 = "سرعة القراءة بطيئة نوعاً ما (" + str(wpm) + " كلمة بالدقيقة)، يفضل التدرب على قراءة أسرع."
         
     # Sentence 3: Error analysis
     if "لا توجد أخطاء" in errors or not errors:
@@ -562,8 +562,9 @@ def generate_session_feedback(session_id: str, current_user: User = Depends(get_
         error_words = [e.split(':')[1] for e in errors.split(';') if ':' in e]
         if error_words:
             sample = "، ".join(error_words[:2])
-            s3 = f"يلاحظ وجود أخطاء في نطق بعض الكلمات مثل:
-
-    except Exception as e:
-        print("Feedback Generation Error:", e)
-        raise HTTPException(status_code=500, detail="Failed to generate feedback with AI.")
+            s3 = "يلاحظ وجود أخطاء في نطق بعض الكلمات مثل: (" + sample + ")، يرجى التدرب عليها مجدداً."
+        else:
+            s3 = "يلاحظ وجود بعض الأخطاء الإملائية أو الصوتية التي تحتاج إلى مراجعة."
+            
+    feedback_text = s1 + " " + s2 + " " + s3
+    return {"feedback": feedback_text}
