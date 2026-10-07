@@ -143,17 +143,21 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
         raise HTTPException(status_code=400, detail="Incorrect username or password")
     return {"access_token": create_access_token(data={"sub": user.username, "role": user.role, "id": user.id}), "token_type": "bearer", "role": user.role, "username": user.username}
 
+# ==========================================
+# UPDATED: PASSAGE CREATION WITH ASSIGNMENT
+# ==========================================
 @app.post("/api/passages")
 def create_passage(
     text: str = Form(...), 
     level: str = Form("متوسط"),
+    assigned_to: int = Form(None), # NEW: Accept assignment
     question1: str = Form(None), option1a: str = Form(None), option1b: str = Form(None), option1c: str = Form(None), answer1: str = Form(None),
     question2: str = Form(None), option2a: str = Form(None), option2b: str = Form(None), option2c: str = Form(None), answer2: str = Form(None),
     current_user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ):
     if current_user.role not in ["doctor", "admin"]: raise HTTPException(status_code=403, detail="Doctors only")
     passage = Passage(
-        text=text, level=level, created_by=current_user.id,
+        text=text, level=level, created_by=current_user.id, assigned_to=assigned_to,
         question1=question1, option1a=option1a, option1b=option1b, option1c=option1c, answer1=answer1,
         question2=question2, option2a=option2a, option2b=option2b, option2c=option2c, answer2=answer2
     )
@@ -162,13 +166,21 @@ def create_passage(
     db.refresh(passage)
     return {"message": "Passage created", "id": passage.id}
 
+# ==========================================
+# UPDATED: PASSAGE FETCHING WITH ASSIGNMENT FILTER
+# ==========================================
 @app.get("/api/passages")
 def get_passages(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     if current_user.role == "doctor":
         return db.query(Passage).filter(Passage.created_by == current_user.id).all()
     elif current_user.role == "student":
         doctor = db.query(User).filter(User.id == current_user.doctor_id).first()
-        if doctor: return db.query(Passage).filter(Passage.created_by == doctor.id).all()
+        if doctor: 
+            # Student only sees passages assigned to them, or assigned to "Everyone" (null)
+            return db.query(Passage).filter(
+                Passage.created_by == doctor.id,
+                (Passage.assigned_to == current_user.id) | (Passage.assigned_to == None)
+            ).all()
     return db.query(Passage).all()
 
 # ==========================================
@@ -320,9 +332,7 @@ async def upload_audio(
     )
     db.add(new_session)
     
-    # ==========================================
-    # NEW: SAVE TO WORD BANK
-    # ==========================================
+    # SAVE TO WORD BANK
     for w in word_analysis:
         if w["type"] in ["correct", "حذف", "إبدال"]:
             word_entry = db.query(WordBank).filter(WordBank.student_id == current_user.id, WordBank.word == w["word"]).first()
@@ -338,8 +348,7 @@ async def upload_audio(
                 
             if word_entry.times_correct >= 3:
                 word_entry.is_mastered = True
-    # ==========================================
-    
+                
     db.commit()
     
     return {
@@ -451,9 +460,6 @@ def reset_password(user_id: int, new_password: str = Form(...), current_user: Us
     if user: user.hashed_password = pwd_context.hash(new_password); db.commit()
     return {"message": "Reset"}
 
-# ==========================================
-# STUDENT GAMIFICATION & STATS ENDPOINT
-# ==========================================
 @app.get("/api/student/stats")
 def get_student_stats(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     if current_user.role != "student": 
@@ -500,9 +506,6 @@ def get_student_stats(current_user: User = Depends(get_current_user), db: Sessio
         "badges": badges
     }
 
-# ==========================================
-# ARABIC READABILITY SCORE ENDPOINT
-# ==========================================
 @app.post("/api/analyze-readability")
 async def analyze_readability(text: str = Form(...), current_user: User = Depends(get_current_user)):
     if current_user.role not in ["doctor", "admin"]:
@@ -544,9 +547,6 @@ async def analyze_readability(text: str = Form(...), current_user: User = Depend
         }
     }
 
-# ==========================================
-# 100% RELIABLE LOCAL FEEDBACK ENGINE
-# ==========================================
 @app.post("/api/sessions/{session_id}/feedback")
 def generate_session_feedback(session_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     if current_user.role not in ["doctor", "admin"]:
@@ -587,9 +587,6 @@ def generate_session_feedback(session_id: str, current_user: User = Depends(get_
     feedback_text = s1 + " " + s2 + " " + s3
     return {"feedback": feedback_text}
 
-# ==========================================
-# STUDENT WORD BANK ENDPOINT
-# ==========================================
 @app.get("/api/student/wordbank")
 def get_student_wordbank(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     if current_user.role != "student": 
@@ -606,3 +603,18 @@ def get_student_wordbank(current_user: User = Depends(get_current_user), db: Ses
         "practicing": practicing,
         "struggling": struggling
     }
+
+# ==========================================
+# NEW: DOCTOR'S STUDENTS LIST ENDPOINT
+# ==========================================
+@app.get("/api/doctor/students")
+def get_doctors_students(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if current_user.role not in ["doctor", "admin"]:
+        raise HTTPException(status_code=403, detail="Doctors/Admins only")
+        
+    if current_user.role == "doctor":
+        students = db.query(User).filter(User.role == "student", User.doctor_id == current_user.id).all()
+    else:
+        students = db.query(User).filter(User.role == "student").all()
+        
+    return [{"id": s.id, "username": s.username} for s in students]
