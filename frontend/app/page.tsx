@@ -1,317 +1,452 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import axios from 'axios'
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, LineChart, Line, PieChart, Pie, Cell } from 'recharts'
 
-export default function StudentReadingPage() {
-  const [phase, setPhase] = useState<'select' | 'reading' | 'quiz' | 'done' | 'practice'>('select')
-  const [passages, setPassages] = useState([])
-  const [selectedPassage, setSelectedPassage] = useState<any>(null)
+const buildEmptyQuestions = (count: number) => {
+  return Array.from({ length: count }, () => ({ q: '', o1: '', o2: '', o3: '', ans: '' }))
+}
+
+export default function Dashboard() {
+  const [sessions, setSessions] = useState<any[]>([])
+  const [passages, setPassages] = useState<any[]>([])
+  const [loading, setLoading] = useState(false)
   
-  const [isRecording, setIsRecording] = useState(false)
-  const [audioBlob, setAudioBlob] = useState<Blob | null>(null)
-  const [status, setStatus] = useState('')
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
-  const chunksRef = useRef<Blob[]>([])
-
-  // NEW: State for accurate WPM
-  const [recordingDuration, setRecordingDuration] = useState(0)
-  const startTimeRef = useRef<number | null>(null)
-
-  const [ans1, setAns1] = useState('')
-  const [ans2, setAns2] = useState('')
-  const [wordAnalysis, setWordAnalysis] = useState<any[]>([])
-  const [earnedStars, setEarnedStars] = useState(0)
+  const [view, setView] = useState<'overview' | 'student' | 'passages'>('overview')
+  const [selectedStudent, setSelectedStudent] = useState<string | null>(null)
+  const [expandedGrade, setExpandedGrade] = useState<string | null>(null)
   
-  const [practiceQuestions, setPracticeQuestions] = useState<any[]>([])
-  const [practiceAnswers, setPracticeAnswers] = useState<string[]>([])
-  const [errorWords, setErrorWords] = useState<string[]>([])
+  const [newPassage, setNewPassage] = useState('')
+  const [newGrade, setNewGrade] = useState('الصف الأول')
+  const [questions, setQuestions] = useState<any[]>(buildEmptyQuestions(4))
+  
+  const [showPassageForm, setShowPassageForm] = useState(false)
+  const [isGenerating, setIsGenerating] = useState(false)
 
-  useEffect(() => {
+  const fetchSessions = useCallback(async () => {
     const token = localStorage.getItem('token')
-    if (token) {
-      axios.get('https://reading-ai-platform.onrender.com/api/passages', { headers: { Authorization: `Bearer ${token}` } })
-        .then(res => setPassages(res.data))
-        .catch(err => console.error(err))
-    }
+    const role = localStorage.getItem('role')
+    if (!token) return window.location.href = '/login'
+    if (role === 'student') return window.location.href = '/student'
+    setLoading(true)
+    try {
+      const res = await axios.get('https://reading-ai-platform.onrender.com/api/sessions', { headers: { Authorization: `Bearer ${token}` } })
+      setSessions(res.data)
+    } catch (err: any) {
+      if (err.response?.status === 401) window.location.href = '/login'
+    } finally { setLoading(false) }
   }, [])
 
-  const startRecording = () => {
-    navigator.mediaDevices.getUserMedia({ audio: true })
-      .then(stream => {
-        let options = { mimeType: 'audio/webm' };
-        if (!MediaRecorder.isTypeSupported('audio/webm')) { options = { mimeType: 'audio/mp4' }; }
-        const mediaRecorder = new MediaRecorder(stream, options)
-        mediaRecorderRef.current = mediaRecorder
-        chunksRef.current = []
-        mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data) }
-        mediaRecorder.onstop = () => {
-          const blob = new Blob(chunksRef.current, { type: mediaRecorder.mimeType })
-          setAudioBlob(blob)
-          setStatus('تم التسجيل. اضغط "التالي" للانتقال إلى الاختبار')
-          stream.getTracks().forEach(track => track.stop())
-          
-          // NEW: Calculate exact duration
-          if (startTimeRef.current) {
-            const durationInSec = (Date.now() - startTimeRef.current) / 1000
-            setRecordingDuration(durationInSec)
-          }
-        }
-        // NEW: Record start time
-        startTimeRef.current = Date.now()
-        mediaRecorder.start(1000)
-        setIsRecording(true)
-        setStatus('جارٍ التسجيل... اقرأ النص بصوت واضح')
-      })
-      .catch(() => setStatus('خطأ: لا يمكن الوصول إلى الميكروفون'))
-  }
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current) {
-      mediaRecorderRef.current.stop()
-      setIsRecording(false)
-    }
-  }
-
-  const sendForEvaluation = async () => {
-    if (!audioBlob || isSubmitting || !selectedPassage) return
+  const fetchPassages = useCallback(async () => {
     const token = localStorage.getItem('token')
-    setIsSubmitting(true)
-    setStatus('جارٍ الإرسال والتقييم...')
-    
-    let correct = 0
-    if (ans1 === selectedPassage.answer1) correct++
-    if (ans2 === selectedPassage.answer2) correct++
-    const score = `${correct}/2`
-
-    const formData = new FormData()
-    formData.append('audio', audioBlob, 'recording.webm')
-    formData.append('passage', selectedPassage.text)
-    formData.append('comprehension_score', score)
-    formData.append('duration_seconds', recordingDuration.toString()) // NEW: Send real duration
-
     try {
-      const res = await axios.post('https://reading-ai-platform.onrender.com/api/sessions/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data', 'Authorization': `Bearer ${token}` }
-      })
-      setStatus(`تم التقييم! الدقة: ${res.data.accuracy}%`)
-      setWordAnalysis(res.data.word_analysis)
-      setEarnedStars(res.data.stars)
-      
-      const mistakes = res.data.word_analysis.filter((w: any) => w.status !== 'correct').map((w: any) => w.word)
-      setErrorWords(mistakes)
-      
-      setPhase('done')
-    } catch (err) {
-      setStatus('حدث خطأ أثناء الإرسال.')
-      setIsSubmitting(false)
-    }
+      const res = await axios.get('https://reading-ai-platform.onrender.com/api/passages', { headers: { Authorization: `Bearer ${token}` } })
+      setPassages(res.data)
+    } catch (err) { console.error("Failed to fetch passages") }
+  }, [])
+
+  useEffect(() => {
+    fetchSessions()
+    fetchPassages()
+    const interval = setInterval(fetchSessions, 5000)
+    return () => clearInterval(interval)
+  }, [fetchSessions, fetchPassages])
+
+  const handleExport = async () => {
+    const token = localStorage.getItem('token')
+    try {
+      const res = await axios.get('https://reading-ai-platform.onrender.com/api/sessions/export', { headers: { Authorization: `Bearer ${token}` }, responseType: 'blob' })
+      const url = window.URL.createObjectURL(new Blob([res.data]))
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', 'research_data.csv')
+      document.body.appendChild(link)
+      link.click(); link.remove()
+    } catch (err) { alert('Failed to export data') }
   }
 
-  const startPractice = () => {
-    if (errorWords.length === 0) {
-      alert('أحسنت! ليس لديك أخطاء للتدرب عليها.')
-      return
-    }
-    
-    const allWords = wordAnalysis.map((w: any) => w.word)
-    const questions = errorWords.slice(0, 3).map((targetWord) => {
-      const distractors = allWords.filter(w => w !== targetWord).sort(() => 0.5 - Math.random()).slice(0, 2)
-      const options = [targetWord, ...distractors].sort(() => 0.5 - Math.random())
+  const handleGradeChange = (grade: string) => {
+    setNewGrade(grade)
+    if (grade === 'الصف الأول' || grade === 'الصف الثاني') setQuestions(buildEmptyQuestions(4))
+    else if (grade === 'الصف الثالث' || grade === 'الصف الرابع') setQuestions(buildEmptyQuestions(5))
+    else if (grade === 'الصف الخامس' || grade === 'الصف السادس') setQuestions(buildEmptyQuestions(6))
+  }
+
+  const handleQuestionChange = (index: number, field: string, value: string) => {
+    const newQuestions = [...questions]
+    newQuestions[index][field] = value
+    setQuestions(newQuestions)
+  }
+
+  // ==========================================
+  // FIXED AI GENERATE FUNCTION IS HERE
+  // ==========================================
+  const handleGenerateAI = async () => {
+    setIsGenerating(true)
+    try {
+      const token = localStorage.getItem('token')
       
-      return {
-        question: "استمع جيداً واختر الكلمة الصحيحة",
-        audioWord: targetWord,
-        options: options,
-        answer: targetWord
+      // FIX: The payload must match the FastAPI GeneratePromptRequest schema exactly
+      const payload = {
+        grade_level: newGrade,          // changed from 'grade' to 'grade_level'
+        num_questions: questions.length // sending the number of questions dynamically
       }
-    })
-    
-    setPracticeQuestions(questions)
-    setPracticeAnswers([])
-    setPhase('practice')
-  }
 
-  const speakWord = async (word: string) => {
+      const res = await axios.post('https://reading-ai-platform.onrender.com/api/passages/generate', 
+        payload, 
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+      
+      // Make sure your FastAPI backend returns 'text' and 'questions' in the JSON response
+      setNewPassage(res.data.text)
+      setQuestions(res.data.questions)
+    } catch (err: any) {
+      console.error("AI Generation Error:", err.response?.data)
+      alert('Failed to generate passage. Check console for details.')
+    } finally {
+      setIsGenerating(false)
+    }
+  }
+  // ==========================================
+
+  const handleAddPassage = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const token = localStorage.getItem('token')
     try {
       const formData = new FormData()
-      formData.append('text', word)
+      formData.append('text', newPassage)
+      formData.append('level', newGrade)
+      formData.append('questions_data', JSON.stringify(questions))
+
+      await axios.post('https://reading-ai-platform.onrender.com/api/passages', formData, { headers: { Authorization: `Bearer ${token}` } })
       
-      const res = await axios.post('https://reading-ai-platform.onrender.com/api/tts', formData, {
-        responseType: 'blob'
-      })
-      
-      const audioUrl = URL.createObjectURL(res.data)
-      const audio = new Audio(audioUrl)
-      audio.play()
-    } catch (err) {
-      console.error("TTS Error, falling back to browser voice", err)
-      if ('speechSynthesis' in window) {
-        const utterance = new SpeechSynthesisUtterance(word)
-        utterance.lang = 'ar-SA'
-        utterance.rate = 0.8
-        window.speechSynthesis.speak(utterance)
-      }
+      setNewPassage(''); setNewGrade('الصف الأول'); setQuestions(buildEmptyQuestions(4))
+      setShowPassageForm(false)
+      alert('تم إضافة النص والأسئلة بنجاح!')
+      fetchPassages()
+    } catch (err: any) {
+      alert(err.response?.data?.detail || 'Failed to add passage')
     }
   }
 
-  const handleGoHome = () => {
-    setPhase('select')
-    setSelectedPassage(null)
-    setAudioBlob(null)
-    setStatus('')
-    setAns1('')
-    setAns2('')
-    setWordAnalysis([])
-    setEarnedStars(0)
-    setErrorWords([])
-    setPracticeQuestions([])
-    setPracticeAnswers([])
-    setRecordingDuration(0) // NEW: Reset duration
+  const handleDeletePassage = async (id: number) => {
+    if (!confirm('Are you sure you want to delete this passage?')) return
+    const token = localStorage.getItem('token')
+    try {
+      await axios.delete(`https://reading-ai-platform.onrender.com/api/passages/${id}`, { headers: { Authorization: `Bearer ${token}` } })
+      fetchPassages()
+    } catch (err) { alert('Failed to delete passage') }
   }
 
+  const handleDeleteSession = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this session?')) return
+    const token = localStorage.getItem('token')
+    try {
+      await axios.delete(`https://reading-ai-platform.onrender.com/api/sessions/${id}`, { headers: { Authorization: `Bearer ${token}` } })
+      fetchSessions()
+    } catch (err) { alert('Failed to delete session') }
+  }
+
+  const handlePrintReport = (studentName: string) => {
+    const studentSessions = sessions.filter((s: any) => s.student_username === studentName);
+    const avgAccuracy = studentSessions.length > 0 ? (studentSessions.reduce((acc: number, s: any) => acc + s.accuracy_percent, 0) / studentSessions.length).toFixed(1) : 0;
+    const avgWpm = studentSessions.length > 0 ? Math.round(studentSessions.reduce((acc: number, s: any) => acc + s.wpm, 0) / studentSessions.length) : 0;
+    
+    const reportHtml = `
+      <!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><title>تقرير طالب: ${studentName}</title>
+      <style>body{font-family:'Segoe UI',Tahoma,sans-serif;padding:40px;color:#333}h1{color:#7e22ce;border-bottom:2px solid #e9d5ff;padding-bottom:10px}.stats{display:flex;gap:20px;margin-bottom:20px}.stat-box{background:#f8f5ff;padding:15px;border-radius:8px;border:1px solid #e9d5ff;flex:1;text-align:center}.stat-box h3{margin:0;color:#6b21a8;font-size:14px}.stat-box p{margin:5px 0 0;font-size:24px;font-weight:bold}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{border:1px solid #ddd;padding:8px;text-align:right;font-size:12px}th{background:#f8f5ff;color:#6b21a8}</style>
+      </head><body><h1>تقرير تقدم الطالب: ${studentName}</h1>
+      <div class="stats"><div class="stat-box"><h3>إجمالي الجلسات</h3><p>${studentSessions.length}</p></div><div class="stat-box"><h3>متوسط الدقة</h3><p>${avgAccuracy}%</p></div><div class="stat-box"><h3>متوسط السرعة</h3><p>${avgWpm} WPM</p></div></div>
+      <h3>سجل الجلسات:</h3><table><thead><tr><th>التاريخ</th><th>الدقة</th><th>السرعة</th><th>الفهم</th><th>الأخطاء</th></tr></thead><tbody>
+      ${studentSessions.map((s: any) => `<tr><td>${new Date(s.session_date).toLocaleDateString()}</td><td>${s.accuracy_percent}%</td><td>${s.wpm}</td><td>${s.comprehension_score}</td><td>${s.error_tags}</td></tr>`).join('')}
+      </tbody></table><script>window.onload=function(){window.print()}</script></body></html>
+    `;
+    const printWindow = window.open('', '_blank');
+    if (printWindow) { printWindow.document.write(reportHtml); printWindow.document.close(); }
+  };
+
+  const uniqueStudents = [...new Set(sessions.map((s: any) => s.student_username))]
+  const filteredSessions = selectedStudent ? sessions.filter((s: any) => s.student_username === selectedStudent) : sessions
+  const chartData = filteredSessions.map((s: any) => ({ name: s.student_username, accuracy: s.accuracy_percent, wpm: s.wpm }))
+  
+  const studentProgressData = sessions
+    .filter((s: any) => s.student_username === selectedStudent)
+    .map((s: any) => ({ name: new Date(s.session_date).toLocaleDateString(), accuracy: s.accuracy_percent, wpm: s.wpm }))
+    .reverse()
+
+  const errorTypeCounts: { [key: string]: number } = { "حذف": 0, "إبدال": 0, "إضافة": 0 }
+  filteredSessions.forEach((s: any) => {
+    if (s.error_tags && s.error_tags !== "لا توجد أخطاء") {
+      s.error_tags.split(';').forEach((item: string) => {
+        const type = item.split(':')[0]
+        if (type && errorTypeCounts.hasOwnProperty(type)) {
+          errorTypeCounts[type]++
+        }
+      })
+    }
+  })
+  const pieData = Object.entries(errorTypeCounts).map(([name, value]) => ({ name, value })).filter(d => d.value > 0)
+  const PIE_COLORS = ['#ef4444', '#f59e0b', '#3b82f6'] 
+
+  const grades = ['الصف الأول', 'الصف الثاني', 'الصف الثالث', 'الصف الرابع', 'الصف الخامس', 'الصف السادس']
+
   return (
-    <div className="p-10 flex flex-col items-center w-full">
-      <div className="bg-white/80 backdrop-blur-xl border border-white/60 p-8 rounded-3xl shadow-xl max-w-2xl w-full">
-        <h1 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-pink-600 text-center mb-8">حصة القراءة</h1>
-        
-        {phase === 'select' && (
-          <div className="flex flex-col gap-4">
-            <h2 className="text-xl font-bold text-center text-gray-900">اختر النص للقراءة</h2>
-            {passages.map((p: any) => (
-              <button key={p.id} onClick={() => { setSelectedPassage(p); setPhase('reading') }} className="bg-white hover:bg-gray-50 border border-purple-100 p-4 rounded-2xl text-right transition">
-                <span className="text-xs text-purple-600 block font-bold">{p.level}</span>
-                <span className="text-gray-900 font-medium">{p.text.substring(0, 50)}...</span>
-              </button>
-            ))}
-            {passages.length === 0 && <p className="text-center text-gray-500 font-medium">لا توجد نصوص متاحة حالياً.</p>}
-          </div>
-        )}
+    <div className="p-4 md:p-6 max-w-6xl mx-auto">
+      <header className="mb-4 flex justify-between items-center">
+        <div>
+          <h1 className="text-xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-pink-600 tracking-tight">لوحة تحكم الدكتورة</h1>
+          <p className="text-purple-500 text-xs font-medium">
+            {view === 'overview' ? 'نظرة شاملة على أداء الطلاب' : view === 'student' ? `تقدم الطالب: ${selectedStudent}` : 'إدارة النصوص القرائية'}
+          </p>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          {view !== 'overview' && (
+            <button onClick={() => { setView('overview'); setSelectedStudent(null) }} className="bg-white/50 border border-white/60 text-purple-700 px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-white/80 transition">
+              ⬅️ رجوع للقائمة
+            </button>
+          )}
+          <button onClick={() => { setView('passages'); setShowPassageForm(false) }} className="bg-white/50 border border-white/60 text-purple-700 px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-white/80 transition">📄 النصوص</button>
+          <button onClick={handleExport} className="bg-gradient-to-r from-emerald-500 to-cyan-500 text-white px-3 py-1.5 rounded-lg font-bold text-xs shadow hover:scale-105 transition">⬇️ Excel</button>
+        </div>
+      </header>
 
-        {phase === 'reading' && selectedPassage && (
-          <>
-            <div className="bg-purple-50 border border-purple-100 p-6 rounded-2xl mb-8 text-center">
-              <p className="text-xl leading-loose text-gray-900 font-medium">{selectedPassage.text}</p>
-            </div>
-            <div className="flex flex-col items-center gap-4">
-              <p className="text-purple-700 font-bold">{status}</p>
-              {!isRecording ? (
-                <button onClick={startRecording} className="bg-gradient-to-r from-purple-500 to-indigo-500 text-white px-8 py-3 rounded-2xl font-bold shadow-lg hover:scale-105 transition">ابدأ التسجيل 🎤</button>
-              ) : (
-                <button onClick={stopRecording} className="bg-gradient-to-r from-red-500 to-pink-500 text-white px-8 py-3 rounded-2xl font-bold shadow-lg animate-pulse transition">إيقاف التسجيل ⏹️</button>
-              )}
-              {audioBlob && !isRecording && (
-                <button onClick={() => setPhase('quiz')} className="bg-slate-800 text-white px-8 py-3 rounded-2xl font-bold hover:bg-slate-700 transition">التالي: اختبار الفهم 📝</button>
-              )}
-            </div>
-          </>
-        )}
-
-        {phase === 'quiz' && selectedPassage && (
-          <>
-            <h2 className="text-xl font-bold mb-6 text-center text-gray-900">اختبار الفهم القرائي</h2>
-            <div className="flex flex-col gap-8">
-              <div>
-                <p className="font-bold mb-3 text-gray-900">1. {selectedPassage.question1}</p>
-                <div className="flex gap-4 flex-wrap">
-                  <button onClick={() => setAns1(selectedPassage.option1a)} className={`px-5 py-2 rounded-xl border font-bold ${ans1===selectedPassage.option1a ? 'bg-purple-600 text-white' : 'bg-white text-gray-900 border-purple-200'}`}>{selectedPassage.option1a}</button>
-                  <button onClick={() => setAns1(selectedPassage.option1b)} className={`px-5 py-2 rounded-xl border font-bold ${ans1===selectedPassage.option1b ? 'bg-purple-600 text-white' : 'bg-white text-gray-900 border-purple-200'}`}>{selectedPassage.option1b}</button>
-                  <button onClick={() => setAns1(selectedPassage.option1c)} className={`px-5 py-2 rounded-xl border font-bold ${ans1===selectedPassage.option1c ? 'bg-purple-600 text-white' : 'bg-white text-gray-900 border-purple-200'}`}>{selectedPassage.option1c}</button>
-                </div>
-              </div>
-              <div>
-                <p className="font-bold mb-3 text-gray-900">2. {selectedPassage.question2}</p>
-                <div className="flex gap-4 flex-wrap">
-                  <button onClick={() => setAns2(selectedPassage.option2a)} className={`px-5 py-2 rounded-xl border font-bold ${ans2===selectedPassage.option2a ? 'bg-purple-600 text-white' : 'bg-white text-gray-900 border-purple-200'}`}>{selectedPassage.option2a}</button>
-                  <button onClick={() => setAns2(selectedPassage.option2b)} className={`px-5 py-2 rounded-xl border font-bold ${ans2===selectedPassage.option2b ? 'bg-purple-600 text-white' : 'bg-white text-gray-900 border-purple-200'}`}>{selectedPassage.option2b}</button>
-                  <button onClick={() => setAns2(selectedPassage.option2c)} className={`px-5 py-2 rounded-xl border font-bold ${ans2===selectedPassage.option2c ? 'bg-purple-600 text-white' : 'bg-white text-gray-900 border-purple-200'}`}>{selectedPassage.option2c}</button>
-                </div>
-              </div>
-              <button onClick={sendForEvaluation} disabled={isSubmitting} className="bg-gradient-to-r from-emerald-500 to-cyan-500 text-white px-8 py-3 rounded-2xl font-bold shadow-lg hover:scale-105 transition disabled:opacity-50">
-                {isSubmitting ? 'جارٍ الإرسال...' : 'إرسال الإجابات والتقييم ✅'}
-              </button>
-            </div>
-          </>
-        )}
-
-        {phase === 'done' && (
-          <div className="text-center py-8">
-            <div className="text-6xl mb-4">🎉</div>
-            <h2 className="text-2xl font-bold text-gray-900 mb-4">أحسنت! لقد أكملت الحصة</h2>
-            
-            <div className="flex justify-center gap-2 mb-6">
-              {[1, 2, 3].map((i) => (
-                <span key={i} className={`text-4xl transition-all duration-500 ${i <= earnedStars ? 'opacity-100 scale-100' : 'opacity-20 scale-90'}`}>
-                  ⭐
-                </span>
-              ))}
-            </div>
-
-            <p className="text-pink-600 font-bold mb-8">{status}</p>
-            <div className="bg-purple-50 border border-purple-100 p-6 rounded-2xl mb-6 text-right" dir="rtl">
-              <h3 className="font-bold text-gray-900 mb-3 text-center">مراجعة الكلمات:</h3>
-              <div className="flex flex-wrap gap-2 justify-center">
-                {wordAnalysis.map((item, idx) => (
-                  <button key={idx} onClick={() => speakWord(item.word)} className={`px-3 py-1 rounded-lg text-lg font-bold transition hover:scale-105 ${item.status === 'correct' ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-red-100 text-red-700 hover:bg-red-200'}`}>{item.word} 🔊</button>
-                ))}
-              </div>
-            </div>
-            
-            {errorWords.length > 0 && (
-              <button onClick={startPractice} className="bg-gradient-to-r from-amber-500 to-orange-500 text-white px-8 py-3 rounded-2xl font-bold shadow-lg hover:scale-105 transition mt-4">
-                🧠 تدرب على أخطائك
-              </button>
+      {view === 'overview' && (
+        <>
+          {/* Student Smart Cards */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+            {uniqueStudents.length === 0 ? (
+              <p className="text-purple-400 text-sm col-span-full text-center py-8">لا يوجد طلاب مسجلون بعد.</p>
+            ) : (
+              uniqueStudents.map((student: any) => {
+                const studentSessions = sessions.filter((s: any) => s.student_username === student)
+                const avgAcc = (studentSessions.reduce((acc: number, s: any) => acc + s.accuracy_percent, 0) / studentSessions.length).toFixed(0)
+                return (
+                  <button key={student} onClick={() => { setSelectedStudent(student); setView('student') }} className="bg-white/80 p-4 rounded-xl shadow-sm hover:scale-105 transition text-right border border-purple-100">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-lg font-bold text-purple-900">{student}</span>
+                      <span className="text-2xl">👤</span>
+                    </div>
+                    <p className="text-[10px] text-gray-500">الجلسات: {studentSessions.length}</p>
+                    <p className="text-[10px] text-emerald-600 font-bold">متوسط الدقة: {avgAcc}%</p>
+                  </button>
+                )
+              })
             )}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div className="bg-white/80 p-4 rounded-xl shadow-sm">
+              <h2 className="text-sm font-bold mb-2 text-purple-900">رسم بياني عام لأداء الطلاب</h2>
+              <div className="w-full h-40" dir="rtl">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={chartData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e9d5ff" vertical={false} />
+                    <XAxis dataKey="name" tick={{ fill: '#7e22ce', fontSize: 10 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: '#7e22ce', fontSize: 10 }} axisLine={false} tickLine={false} />
+                    <Tooltip contentStyle={{ background: 'rgba(255,255,255,0.9)', border: '1px solid #d8b4fe', borderRadius: '8px', fontSize: '10px' }} />
+                    <Bar dataKey="accuracy" fill="#8b5cf6" name="الدقة %" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="wpm" fill="#ec4899" name="السرعة" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
             
-            <button onClick={handleGoHome} className="bg-slate-800 text-white px-8 py-3 rounded-2xl font-bold hover:bg-slate-700 transition mt-4">
-              العودة لاختيار نص جديد 🏠
+            <div className="bg-white/80 p-4 rounded-xl shadow-sm">
+              <h2 className="text-sm font-bold mb-2 text-purple-900">تحليل أنواع الأخطاء (Miscue Analysis)</h2>
+              <div className="w-full h-40" dir="rtl">
+                {pieData.length === 0 ? (
+                  <p className="text-center text-gray-400 text-xs mt-16">لا توجد أخطاء مسجلة بعد.</p>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={50} fill="#8884d8">
+                        {pieData.map((entry, index) => (<Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />))}
+                      </Pie>
+                      <Tooltip contentStyle={{ background: 'rgba(255,255,255,0.9)', border: '1px solid #d8b4fe', borderRadius: '8px', fontSize: '10px' }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Student Deep Dive View (Evaluations) */}
+      {view === 'student' && selectedStudent && (
+        <>
+          <div className="flex justify-end mb-4">
+            <button onClick={() => handlePrintReport(selectedStudent)} className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-4 py-1.5 rounded-lg font-bold text-xs shadow hover:scale-105 transition">
+              🖨️ طباعة تقرير PDF
             </button>
           </div>
-        )}
 
-        {phase === 'practice' && (
-          <div className="text-center py-8">
-            <h2 className="text-2xl font-bold text-gray-900 mb-6">تمرين العلاج الذكي 🤖</h2>
-            <div className="flex flex-col gap-8 text-right">
-              {practiceQuestions.map((q, idx) => (
-                <div key={idx} className="text-center">
-                  <p className="font-bold mb-3 text-gray-900">{idx + 1}. {q.question}</p>
-                  <button 
-                    onClick={() => speakWord(q.audioWord)} 
-                    className="bg-purple-600 text-white px-6 py-3 rounded-full font-bold shadow-lg hover:scale-105 transition mb-4 animate-pulse"
-                  >
-                    🔊 استمع للكلمة
-                  </button>
-                  <div className="flex gap-4 flex-wrap justify-center">
-                    {q.options.map((opt: string, i: number) => (
-                      <button 
-                        key={i} 
-                        onClick={() => {
-                          const newAnswers = [...practiceAnswers]
-                          newAnswers[idx] = opt
-                          setPracticeAnswers(newAnswers)
-                        }} 
-                        className={`px-5 py-2 rounded-xl border font-bold ${practiceAnswers[idx] === opt ? 'bg-purple-600 text-white' : 'bg-white text-gray-900 border-purple-200'}`}
-                      >
-                        {opt}
-                      </button>
-                    ))}
-                  </div>
-                  {practiceAnswers[idx] && (
-                    <p className={`mt-2 text-sm font-bold ${practiceAnswers[idx] === q.answer ? 'text-emerald-600' : 'text-red-500'}`}>
-                      {practiceAnswers[idx] === q.answer ? '✅ إجابة صحيحة!' : `❌ الإجابة الصحيحة: ${q.answer}`}
-                    </p>
-                  )}
-                </div>
-              ))}
-              <button onClick={handleGoHome} className="bg-slate-800 text-white px-8 py-3 rounded-2xl font-bold hover:bg-slate-700 transition mt-4 self-center">
-                إنهاء التمرين والعودة للرئيسية 🏠
-              </button>
+          <div className="grid grid-cols-3 gap-3 mb-4">
+            <div className="bg-white/80 p-3 rounded-xl shadow-sm">
+              <h3 className="text-[10px] font-bold text-purple-700 uppercase">جلسات الطالب</h3>
+              <p className="text-xl font-extrabold text-indigo-600 mt-1">{filteredSessions.length}</p>
+            </div>
+            <div className="bg-white/80 p-3 rounded-xl shadow-sm">
+              <h3 className="text-[10px] font-bold text-pink-700 uppercase">متوسط الدقة</h3>
+              <p className="text-xl font-extrabold text-pink-600 mt-1">{filteredSessions.length > 0 ? (filteredSessions.reduce((acc: number, s: any) => acc + s.accuracy_percent, 0) / filteredSessions.length).toFixed(1) : 0}%</p>
+            </div>
+            <div className="bg-white/80 p-3 rounded-xl shadow-sm">
+              <h3 className="text-[10px] font-bold text-cyan-700 uppercase">متوسط السرعة</h3>
+              <p className="text-xl font-extrabold text-cyan-600 mt-1">{filteredSessions.length > 0 ? Math.round(filteredSessions.reduce((acc: number, s: any) => acc + s.wpm, 0) / filteredSessions.length) : 0} <span className="text-[10px] text-purple-400">WPM</span></p>
             </div>
           </div>
-        )}
-      </div>
+
+          <div className="bg-white/80 p-4 rounded-xl shadow-sm mb-4">
+            <h2 className="text-sm font-bold mb-2 text-purple-900">تقدم الطالب</h2>
+            <div className="w-full h-56" dir="rtl">
+              {studentProgressData.length === 0 ? (
+                <p className="text-center text-gray-400 text-xs mt-20">لا توجد بيانات كافية لرسم التقدم.</p>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={studentProgressData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e9d5ff" vertical={false} />
+                    <XAxis dataKey="name" tick={{ fill: '#7e22ce', fontSize: 10 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: '#7e22ce', fontSize: 10 }} axisLine={false} tickLine={false} />
+                    <Tooltip contentStyle={{ background: 'rgba(255,255,255,0.9)', border: '1px solid #d8b4fe', borderRadius: '8px', fontSize: '10px' }} />
+                    <Line type="monotone" dataKey="accuracy" stroke="#8b5cf6" name="الدقة %" strokeWidth={2} dot={{ r: 4 }} />
+                    <Line type="monotone" dataKey="wpm" stroke="#ec4899" name="السرعة" strokeWidth={2} dot={{ r: 4 }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          </div>
+
+          {/* Evaluation Table */}
+          <div className="bg-white/80 p-4 rounded-xl shadow-sm mb-4">
+            <h2 className="text-sm font-bold mb-4 text-purple-900">سجل جلسات {selectedStudent}</h2>
+            <div className="overflow-x-auto w-full" dir="rtl">
+              <table className="w-full text-right border-collapse table-fixed">
+                <thead>
+                  <tr className="border-b border-purple-100">
+                    <th className="w-[10%] py-3 px-3 text-xs font-bold text-purple-700">الدقة</th>
+                    <th className="w-[10%] py-3 px-3 text-xs font-bold text-purple-700">السرعة</th>
+                    <th className="w-[10%] py-3 px-3 text-xs font-bold text-purple-700">الفهم</th>
+                    <th className="w-[20%] py-3 px-3 text-xs font-bold text-purple-700">الأخطاء</th>
+                    <th className="w-[40%] py-3 px-3 text-xs font-bold text-purple-700">النص والصوت</th>
+                    <th className="w-[10%] py-3 px-3 text-xs font-bold text-purple-700">إجراء</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredSessions.length === 0 ? (
+                    <tr><td colSpan={6} className="py-6 text-center text-purple-400 text-xs">لا توجد جلسات لهذا الطالب.</td></tr>
+                  ) : (
+                    filteredSessions.map((session: any) => {
+                      const accColor = session.accuracy_percent > 85 ? 'bg-emerald-100 text-emerald-700' : session.accuracy_percent > 60 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700';
+                      return (
+                        <tr key={session.session_id} className="border-b border-purple-50 hover:bg-white/60 align-top">
+                          <td className="py-3 px-3"><span className={`px-2 py-1 rounded-full text-xs font-bold ${accColor}`}>{session.accuracy_percent}%</span></td>
+                          <td className="py-3 px-3 text-purple-600 font-bold text-xs whitespace-nowrap">{session.wpm} WPM</td>
+                          <td className="py-3 px-3"><span className="px-2 py-1 rounded-full text-xs font-bold bg-purple-100 text-purple-700">{session.comprehension_score}</span></td>
+                          <td className="py-3 px-3 text-red-500 text-xs leading-relaxed break-words">{session.error_tags}</td>
+                          <td className="py-3 px-3 text-purple-500 text-xs leading-relaxed">
+                            <div className="bg-white/60 rounded-md p-2 border border-purple-50 break-words">
+                              <p className="italic mb-2 block">"{session.asr_transcript}"</p>
+                              {session.audio_file_id && (<audio controls src={session.audio_file_id} className="w-full h-8 mt-1">Your browser does not support the audio element.</audio>)}
+                            </div>
+                          </td>
+                          <td className="py-3 px-3 text-center">
+                            <button onClick={() => handleDeleteSession(session.session_id)} className="text-red-500 hover:text-red-700 text-lg">🗑️</button>
+                          </td>
+                        </tr>
+                      )
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Passages View with Interactive Grade Folders */}
+      {view === 'passages' && (
+        <div className="bg-white/80 border border-purple-200 p-4 rounded-xl shadow-lg mb-4">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-base font-bold text-purple-900">إدارة النصوص حسب الصف</h3>
+            <button onClick={() => setShowPassageForm(!showPassageForm)} className="bg-purple-600 text-white px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-purple-700 transition">➕ إضافة نص جديد</button>
+          </div>
+
+          {showPassageForm && (
+            <div className="border border-purple-100 p-3 rounded-lg mb-4 bg-purple-50/50">
+              <form onSubmit={handleAddPassage} className="flex flex-col gap-3">
+                <div className="flex gap-2 items-end">
+                  <div className="flex-1">
+                    <label className="block text-xs font-bold text-purple-800 mb-1">الصف الدراسي</label>
+                    <select value={newGrade} onChange={(e) => handleGradeChange(e.target.value)} className="w-full p-2 rounded-md bg-white border border-purple-100 text-xs text-gray-900" required>
+                      {grades.map(g => <option key={g} value={g}>{g}</option>)}
+                    </select>
+                  </div>
+                  <button type="button" onClick={handleGenerateAI} disabled={isGenerating} className="bg-gradient-to-r from-pink-500 to-purple-500 text-white px-4 py-2 rounded-md font-bold text-xs hover:scale-105 transition disabled:opacity-50">
+                    {isGenerating ? '⏳ جارٍ التوليد...' : '✨ توليد بالذكاء الاصطناعي'}
+                  </button>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-purple-800 mb-1">نص القراءة</label>
+                  <textarea value={newPassage} onChange={(e) => setNewPassage(e.target.value)} placeholder="اكتب النص هنا أو اضغط توليد بالذكاء الاصطناعي..." className="p-2 rounded-lg bg-white border border-purple-100 focus:ring-1 focus:ring-purple-400 h-20 text-xs text-gray-900 w-full" required />
+                </div>
+                
+                {questions.map((q, idx) => (
+                  <div key={idx} className="border-t pt-2">
+                    <h4 className="font-bold text-purple-800 text-sm mb-2">السؤال {idx + 1}</h4>
+                    <input value={q.q} onChange={(e) => handleQuestionChange(idx, 'q', e.target.value)} placeholder="نص السؤال" className="w-full p-2 mb-2 rounded-md bg-white border border-purple-100 text-xs text-gray-900" required />
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                      <input value={q.o1} onChange={(e) => handleQuestionChange(idx, 'o1', e.target.value)} placeholder="الخيار 1" className="p-2 rounded-md bg-white border border-purple-100 text-xs text-gray-900" required />
+                      <input value={q.o2} onChange={(e) => handleQuestionChange(idx, 'o2', e.target.value)} placeholder="الخيار 2" className="p-2 rounded-md bg-white border border-purple-100 text-xs text-gray-900" required />
+                      <input value={q.o3} onChange={(e) => handleQuestionChange(idx, 'o3', e.target.value)} placeholder="الخيار 3" className="p-2 rounded-md bg-white border border-purple-100 text-xs text-gray-900" required />
+                      <input value={q.ans} onChange={(e) => handleQuestionChange(idx, 'ans', e.target.value)} placeholder="الإجابة الصحيحة" className="p-2 rounded-md bg-emerald-50 border border-emerald-200 text-xs text-gray-900" required />
+                    </div>
+                  </div>
+                ))}
+                
+                <button type="submit" className="bg-purple-600 text-white px-4 py-2 rounded-lg font-bold w-fit text-xs hover:bg-purple-700 transition mt-2">حفظ النص والأسئلة</button>
+              </form>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-4">
+            {grades.map(grade => {
+              const count = passages.filter(p => p.level === grade).length;
+              const isExpanded = expandedGrade === grade;
+              return (
+                <div key={grade} className={`border rounded-xl overflow-hidden shadow-sm transition-all ${isExpanded ? 'border-purple-400 md:col-span-3' : 'border-purple-100 bg-white'}`}>
+                  <button 
+                    onClick={() => setExpandedGrade(isExpanded ? null : grade)} 
+                    className={`w-full flex justify-between items-center p-3 transition ${isExpanded ? 'bg-purple-100' : 'bg-purple-50 hover:bg-purple-100'}`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-xl">{isExpanded ? '📂' : '📁'}</span>
+                      <span className="font-bold text-sm text-purple-800">{grade}</span>
+                    </div>
+                    <span className="text-[10px] bg-purple-200 text-purple-800 rounded-full px-2 py-0.5 font-bold">{count} نص</span>
+                  </button>
+                  
+                  {isExpanded && (
+                    <div className="divide-y divide-purple-50 p-2 bg-white">
+                      {count === 0 ? (
+                        <p className="text-xs text-gray-400 p-3 text-center">لا توجد نصوص في هذا الصف بعد.</p>
+                      ) : (
+                        passages.filter(p => p.level === grade).map(p => (
+                          <div key={p.id} className="flex justify-between items-center p-2 bg-white hover:bg-purple-50/30 transition">
+                            <span className="text-xs text-gray-800 font-medium max-w-[80%] truncate">{p.text}</span>
+                            <button onClick={() => handleDeletePassage(p.id)} className="text-red-500 hover:text-red-700 text-xs font-bold">🗑️ حذف</button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
