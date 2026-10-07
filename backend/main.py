@@ -473,3 +473,50 @@ def get_student_stats(current_user: User = Depends(get_current_user), db: Sessio
     user = db.query(User).filter(User.id == user_id).first()
     if user: user.hashed_password = pwd_context.hash(new_password); db.commit()
     return {"message": "Reset"}
+# ==========================================
+# ARABIC READABILITY SCORE ENDPOINT
+# ==========================================
+@app.post("/api/analyze-readability")
+async def analyze_readability(text: str = Form(...), current_user: User = Depends(get_current_user)):
+    if current_user.role not in ["doctor", "admin"]:
+        raise HTTPException(status_code=403, detail="Doctors/Admins only")
+    
+    words = text.split()
+    num_words = len(words)
+    if num_words == 0:
+        return {"score": 0, "level": "غير معروف"}
+    
+    # Count sentences (split by ., !, ?, or Arabic comma)
+    sentences = re.split(r'[.!?،؛]', text)
+    num_sentences = len([s for s in sentences if s.strip()])
+    if num_sentences == 0: num_sentences = 1
+    
+    avg_word_length = sum(len(w) for w in words) / num_words
+    avg_sentence_length = num_words / num_sentences
+    
+    # Count complex Arabic letters (requires specific mouth movements)
+    complex_letters = re.findall(r'[ثذظضخغق]', text)
+    complex_ratio = (len(complex_letters) / num_words) * 100
+    
+    # Calculate Score (1-10 scale)
+    score = 1
+    score += (avg_word_length - 3) * 0.8
+    score += (avg_sentence_length - 5) * 0.3
+    score += complex_ratio * 0.2
+    score = max(1, min(10, round(score))) # Keep it between 1 and 10
+    
+    # Determine Level
+    if score <= 3: level = "مبتدئ (الصف الأول-الثاني)"
+    elif score <= 6: level = "متوسط (الصف الثالث-الرابع)"
+    else: level = "متقدم (الصف الخامس-السادس)"
+        
+    return {
+        "score": score,
+        "level": level,
+        "stats": {
+            "word_count": num_words,
+            "sentence_count": num_sentences,
+            "avg_word_length": round(avg_word_length, 1),
+            "complex_letter_ratio": round(complex_ratio, 1)
+        }
+    }
