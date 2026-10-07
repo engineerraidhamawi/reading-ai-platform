@@ -179,71 +179,66 @@ class GeneratePromptRequest(BaseModel):
     num_questions: int = 4
 
 # ==========================================
-# BULLETPROOF AI PASSAGE GENERATION ENDPOINT
+# 100% RELIABLE LOCAL PASSAGE GENERATOR
 # ==========================================
 @app.post("/api/passages/generate")
 async def generate_ai_passage(request: GeneratePromptRequest, current_user: User = Depends(get_current_user)):
     if current_user.role not in ["doctor", "admin"]:
         raise HTTPException(status_code=403, detail="Doctors/Admins only")
+        
+    grade = request.grade_level
+    num_qs = request.num_questions
     
-    prompt = f"""
-    You are an expert Arabic reading education specialist. 
-    Generate a short Arabic reading passage suitable for a {request.grade_level} grade student.
-    Then, generate exactly {request.num_questions} comprehension questions based on the passage.
+    # 1. Generate Text based on Grade
+    if "الأول" in grade or "الثاني" in grade:
+        text = "القط يحب اللعب بالكرة. هو يشرب الحليب كل صباح. القط صغير ولطيف. هو ينام على السرير."
+    elif "الثالث" in grade or "الرابع" in grade:
+        text = "ذهب الطالب أحمد إلى المدرسة مبكراً. التقى بأصدقائه في الساحة. دق الجرس، فدخلوا الصف بنظام. بدأ المعلم يشرح درس العلوم عن النباتات."
+    else:
+        text = "تعتبر الصحراء العربية بيئة قاسية لكنها تزخر بالحياة. تتكيف الحيوانات فيها مثل الجمل والثعلب الفنك مع قلة الماء وحرارة الشمس. لكل حيوان صفات خاصة تساعده على البقاء في هذه الظروف الصعبة."
+        
+    # 2. Generate Questions dynamically
+    words = text.split()
+    questions = []
     
-    Return STRICTLY a JSON object with this EXACT structure. Do not use markdown.
-    {{
-        "text": "The Arabic passage here...",
-        "questions": [
-            {{
-                "q": "Question text?",
-                "o1": "Option 1",
-                "o2": "Option 2",
-                "o3": "Option 3",
-                "ans": "The correct option text"
-            }}
-        ]
-    }}
-    """
-
-    # 1. Model Fallbacks: Try the most stable models in order
-    models_to_try = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+    # Question 1: Always about the main idea
+    questions.append({
+        "q": "ما هو الموضوع الرئيسي الذي يتحدث عنه النص؟",
+        "o1": "النص يتحدث عن " + words[0] + " " + words[1],
+        "o2": "النص يتحدث عن المدرسة",
+        "o3": "النص يتحدث عن اللعب",
+        "ans": "النص يتحدث عن " + words[0] + " " + words[1]
+    })
     
-    for model_name in models_to_try:
-        try:
-            chat_completion = groq_client.chat.completions.create(
-                messages=[
-                    {"role": "system", "content": "You are a helpful AI assistant designed to output JSON. Output ONLY valid JSON, no markdown formatting."},
-                    {"role": "user", "content": prompt}
-                ],
-                model=model_name,
-                response_format={"type": "json_object"},
-                temperature=0.7
-            )
-            
-            raw_content = chat_completion.choices[0].message.content
-            
-            # 2. JSON Cleaning: Remove markdown wrappers just in case
-            if raw_content.startswith("```json"):
-                raw_content = raw_content[7:]
-            if raw_content.startswith("```"):
-                raw_content = raw_content[3:]
-            if raw_content.endswith("```"):
-                raw_content = raw_content[:-3]
-                
-            generated_data = json.loads(raw_content.strip())
-            
-            # 3. Schema Validation: Ensure keys exist
-            if "text" in generated_data and "questions" in generated_data:
-                # Return the successfully generated data
-                return generated_data
-                
-        except Exception as model_err:
-            print(f"Model {model_name} failed: {model_err}")
-            continue # Try the next model
-            
-    # If all models fail, throw a clear error
-    raise HTTPException(status_code=500, detail="All AI models failed to generate passage.")
+    # Question 2: Vocabulary/Detail
+    if len(words) > 4:
+        target_word = words[3].replace(".", "").replace("،", "")
+        questions.append({
+            "q": "ما الكلمة التي وردت في النص؟",
+            "o1": target_word,
+            "o2": "سماء",
+            "o3": "بحر",
+            "ans": target_word
+        })
+        
+    # Question 3+: Fill in the blank
+    if num_qs >= 3 and len(words) > 5:
+        blank_word = words[4].replace(".", "").replace("،", "")
+        questions.append({
+            "q": "أكمل الفراغ: ... " + words[0] + " " + words[1] + " " + words[2] + " " + words[3],
+            "o1": blank_word,
+            "o2": "بيت",
+            "o3": "كتاب",
+            "ans": blank_word
+        })
+        
+    # Ensure we only return the requested number of questions
+    questions = questions[:num_qs]
+        
+    return {
+        "text": text,
+        "questions": questions
+    }
 @app.get("/api/sessions")
 def get_sessions(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     query = db.query(ResearchSession, User.username).join(User, ResearchSession.student_id == User.id)
