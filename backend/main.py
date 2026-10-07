@@ -172,7 +172,7 @@ def get_passages(current_user: User = Depends(get_current_user), db: Session = D
     return db.query(Passage).all()
 
 # ==========================================
-# NEW: AI PASSAGE GENERATION ENDPOINT
+# AI PASSAGE GENERATION ENDPOINT
 # ==========================================
 class GeneratePromptRequest(BaseModel):
     grade_level: str
@@ -184,42 +184,42 @@ async def generate_ai_passage(request: GeneratePromptRequest, current_user: User
         raise HTTPException(status_code=403, detail="Doctors/Admins only")
     
     try:
-        # Create the prompt for Groq Llama 3.3
+        # Create the prompt for Groq
         prompt = f"""
         You are an expert Arabic reading education specialist. 
         Generate a short reading passage suitable for a {request.grade_level} grade student.
         The passage should be engaging and culturally appropriate.
         
-        Then, generate {request.num_questions} comprehension questions based on the passage.
-        Each question must have 3 options (a, b, c) and one correct answer.
+        Then, generate exactly {request.num_questions} comprehension questions based on the passage.
+        Each question must have 3 options and one correct answer.
         
-        Return the response strictly as a JSON object with this structure:
+        Return the response strictly as a JSON object with this EXACT structure:
         {{
             "text": "The Arabic passage here...",
             "questions": [
                 {{
-                    "question": "Question 1 text?",
-                    "option_a": "Option A",
-                    "option_b": "Option B",
-                    "option_c": "Option C",
-                    "answer": "The correct option text"
+                    "q": "Question text?",
+                    "o1": "Option 1",
+                    "o2": "Option 2",
+                    "o3": "Option 3",
+                    "ans": "The correct option text"
                 }}
             ]
         }}
+        Ensure there are exactly {request.num_questions} question objects in the array.
         """
         
-               chat_completion = groq_client.chat.completions.create(
+        chat_completion = groq_client.chat.completions.create(
             messages=[
                 {"role": "system", "content": "You are a helpful AI assistant designed to output JSON."},
                 {"role": "user", "content": prompt}
             ],
-            model="llama3-70b-8192",  # <-- FIXED MODEL NAME
+            model="llama3-70b-8192",
             response_format={"type": "json_object"}
         )
         
         generated_data = json.loads(chat_completion.choices[0].message.content)
         
-        # You can optionally save this to Supabase/Postgres here, or just return it to the frontend
         return generated_data
 
     except Exception as e:
