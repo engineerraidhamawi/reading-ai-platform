@@ -33,9 +33,12 @@ export default function Dashboard() {
   const [feedback, setFeedback] = useState<{ [key: string]: string }>({})
   const [generatingFeedback, setGeneratingFeedback] = useState<string | null>(null)
 
-  // NEW: Assignment States
+  // Assignment States
   const [doctorStudents, setDoctorStudents] = useState<any[]>([])
   const [assignedTo, setAssignedTo] = useState<string>("")
+  
+  // NEW: Image Upload State
+  const [passageImage, setPassageImage] = useState<File | null>(null)
 
   const fetchSessions = useCallback(async () => {
     const token = localStorage.getItem('token')
@@ -59,7 +62,6 @@ export default function Dashboard() {
     } catch (err) { console.error("Failed to fetch passages") }
   }, [])
 
-  // NEW: Fetch Doctor's Students
   const fetchDoctorStudents = useCallback(async () => {
     const token = localStorage.getItem('token')
     try {
@@ -71,7 +73,7 @@ export default function Dashboard() {
   useEffect(() => {
     fetchSessions()
     fetchPassages()
-    fetchDoctorStudents() // Fetch students on load
+    fetchDoctorStudents()
     const interval = setInterval(fetchSessions, 5000)
     return () => clearInterval(interval)
   }, [fetchSessions, fetchPassages, fetchDoctorStudents])
@@ -143,9 +145,13 @@ export default function Dashboard() {
       formData.append('level', newGrade)
       formData.append('questions_data', JSON.stringify(questions))
       
-      // NEW: Append assigned_to
       if (assignedTo) {
         formData.append('assigned_to', assignedTo)
+      }
+
+      // NEW: Append Image
+      if (passageImage) {
+        formData.append('image', passageImage)
       }
 
       await axios.post('https://reading-ai-platform.onrender.com/api/passages', formData, { headers: { Authorization: `Bearer ${token}` } })
@@ -153,7 +159,8 @@ export default function Dashboard() {
       setNewPassage(''); setNewGrade('الصف الأول'); setQuestions(buildEmptyQuestions(4))
       setShowPassageForm(false)
       setReadabilityScore(null) 
-      setAssignedTo("") // Reset assignment
+      setAssignedTo("")
+      setPassageImage(null) // Reset image
       alert('تم إضافة النص والأسئلة بنجاح!')
       fetchPassages()
     } catch (err: any) {
@@ -389,7 +396,7 @@ export default function Dashboard() {
                           <td className="py-3 px-3"><span className="px-2 py-1 rounded-full text-xs font-bold bg-purple-100 text-purple-700">{session.comprehension_score}</span></td>
                           <td className="py-3 px-3 text-red-500 text-xs leading-relaxed break-words">{session.error_tags}</td>
                           <td className="py-3 px-3 text-purple-500 text-xs leading-relaxed">
-                                                       <div className="bg-white/60 rounded-md p-2 border border-purple-50 break-words">
+                            <div className="bg-white/60 rounded-md p-2 border border-purple-50 break-words">
                               {session.audio_file_id && (
                                 <WaveformPlayer 
                                   audioUrl={session.audio_file_id} 
@@ -398,7 +405,6 @@ export default function Dashboard() {
                               )}
                               
                               {feedback[session.session_id] && (
-                             
                                 <div className="mt-2 bg-indigo-50 p-2 rounded-md border border-indigo-100 text-indigo-800 text-[10px] leading-relaxed">
                                   <span className="font-bold">تقرير الذكاء الاصطناعي: </span>
                                   {feedback[session.session_id]}
@@ -444,7 +450,6 @@ export default function Dashboard() {
                     </select>
                   </div>
                   
-                  {/* NEW: Assignment Dropdown */}
                   <div className="flex-1">
                     <label className="block text-xs font-bold text-purple-800 mb-1">إرسال إلى</label>
                     <select value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)} className="w-full p-2 rounded-md bg-white border border-purple-100 text-xs text-gray-900">
@@ -458,6 +463,17 @@ export default function Dashboard() {
                   <button type="button" onClick={handleGenerateAI} disabled={isGenerating} className="bg-gradient-to-r from-pink-500 to-purple-500 text-white px-4 py-2 rounded-md font-bold text-xs hover:scale-105 transition disabled:opacity-50">
                     {isGenerating ? '⏳ جارٍ التوليد...' : '✨ توليد بالذكاء الاصطناعي'}
                   </button>
+                </div>
+
+                {/* NEW: Image Upload Field */}
+                <div className="mb-2">
+                  <label className="block text-xs font-bold text-purple-800 mb-1">صورة القصة (Story Image)</label>
+                  <input 
+                    type="file" 
+                    accept="image/*" 
+                    onChange={(e) => setPassageImage(e.target.files?.[0] || null)} 
+                    className="text-xs text-gray-700 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100 w-full"
+                  />
                 </div>
 
                 <div>
