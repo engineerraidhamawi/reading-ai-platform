@@ -184,7 +184,6 @@ async def generate_ai_passage(request: GeneratePromptRequest, current_user: User
         raise HTTPException(status_code=403, detail="Doctors/Admins only")
     
     try:
-        # Create the prompt for Groq
         prompt = f"""
         You are an expert Arabic reading education specialist. 
         Generate a short reading passage suitable for a {request.grade_level} grade student.
@@ -209,12 +208,12 @@ async def generate_ai_passage(request: GeneratePromptRequest, current_user: User
         Ensure there are exactly {request.num_questions} question objects in the array.
         """
         
-               chat_completion = groq_client.chat.completions.create(
+        chat_completion = groq_client.chat.completions.create(
             messages=[
                 {"role": "system", "content": "You are a helpful AI assistant designed to output JSON."},
                 {"role": "user", "content": prompt}
             ],
-            model="llama3-8b-8192",  # <-- CHANGE TO THIS
+            model="llama3-8b-8192",
             response_format={"type": "json_object"}
         )
         
@@ -225,7 +224,6 @@ async def generate_ai_passage(request: GeneratePromptRequest, current_user: User
     except Exception as e:
         print("Groq Generation Error:", e)
         raise HTTPException(status_code=500, detail="Failed to generate passage with AI.")
-
 @app.get("/api/sessions")
 def get_sessions(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     query = db.query(ResearchSession, User.username).join(User, ResearchSession.student_id == User.id)
