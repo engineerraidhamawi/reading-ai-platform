@@ -28,8 +28,11 @@ export default function StudentReadingPage() {
   const [practiceAnswers, setPracticeAnswers] = useState<string[]>([])
   const [errorWords, setErrorWords] = useState<string[]>([])
 
-  // NEW: State for Gamification Stats
+  // Gamification Stats
   const [stats, setStats] = useState<any>(null)
+
+  // NEW: Font Size State
+  const [fontSize, setFontSize] = useState<'small' | 'medium' | 'large'>('medium')
 
   useEffect(() => {
     const token = localStorage.getItem('token')
@@ -38,7 +41,6 @@ export default function StudentReadingPage() {
         .then(res => setPassages(res.data))
         .catch(err => console.error(err))
 
-      // NEW: Fetch Student Stats
       axios.get('https://reading-ai-platform.onrender.com/api/student/stats', { headers: { Authorization: `Bearer ${token}` } })
         .then(res => setStats(res.data))
         .catch(err => console.error(err))
@@ -180,13 +182,35 @@ export default function StudentReadingPage() {
   return (
     <div className="p-10 flex flex-col items-center w-full">
       <div className="bg-white/80 backdrop-blur-xl border border-white/60 p-8 rounded-3xl shadow-xl max-w-2xl w-full">
-        <h1 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-pink-600 text-center mb-8">حصة القراءة</h1>
+        <h1 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-pink-600 text-center mb-4">حصة القراءة</h1>
         
+        {/* NEW: Font Size Adjuster */}
+        <div className="flex justify-end gap-1 mb-4">
+          <button 
+            onClick={() => setFontSize('small')} 
+            className={`px-3 py-1 rounded-lg text-xs font-bold transition ${fontSize === 'small' ? 'bg-purple-600 text-white' : 'bg-white/60 text-purple-600 border border-purple-200'}`}
+          >
+            أ-
+          </button>
+          <button 
+            onClick={() => setFontSize('medium')} 
+            className={`px-3 py-1 rounded-lg text-sm font-bold transition ${fontSize === 'medium' ? 'bg-purple-600 text-white' : 'bg-white/60 text-purple-600 border border-purple-200'}`}
+          >
+            أ
+          </button>
+          <button 
+            onClick={() => setFontSize('large')} 
+            className={`px-3 py-1 rounded-lg text-base font-bold transition ${fontSize === 'large' ? 'bg-purple-600 text-white' : 'bg-white/60 text-purple-600 border border-purple-200'}`}
+          >
+            أ+
+          </button>
+        </div>
+
         {phase === 'select' && (
           <div className="flex flex-col gap-4">
             <h2 className="text-xl font-bold text-center text-gray-900">اختر النص للقراءة</h2>
             
-            {/* NEW: Gamification Stats UI */}
+            {/* Gamification Stats UI */}
             {stats && (
               <div className="bg-purple-50 border border-purple-100 p-4 rounded-2xl mb-4">
                 <div className="grid grid-cols-3 gap-2 text-center mb-4">
@@ -233,7 +257,8 @@ export default function StudentReadingPage() {
         {phase === 'reading' && selectedPassage && (
           <>
             <div className="bg-purple-50 border border-purple-100 p-6 rounded-2xl mb-8 text-center">
-              <p className="text-xl leading-loose text-gray-900 font-medium">{selectedPassage.text}</p>
+              {/* NEW: Dynamic Font Size for Passage */}
+              <p className={`${fontSize === 'small' ? 'text-lg' : fontSize === 'medium' ? 'text-xl' : 'text-2xl'} leading-loose text-gray-900 font-medium`}>{selectedPassage.text}</p>
             </div>
             <div className="flex flex-col items-center gap-4">
               <p className="text-purple-700 font-bold">{status}</p>
@@ -254,7 +279,8 @@ export default function StudentReadingPage() {
             <h2 className="text-xl font-bold mb-6 text-center text-gray-900">اختبار الفهم القرائي</h2>
             <div className="flex flex-col gap-8">
               <div>
-                <p className="font-bold mb-3 text-gray-900">1. {selectedPassage.question1}</p>
+                {/* NEW: Dynamic Font Size for Question 1 */}
+                <p className={`${fontSize === 'small' ? 'text-sm' : fontSize === 'medium' ? 'text-base' : 'text-lg'} font-bold mb-3 text-gray-900`}>1. {selectedPassage.question1}</p>
                 <div className="flex gap-4 flex-wrap">
                   <button onClick={() => setAns1(selectedPassage.option1a)} className={`px-5 py-2 rounded-xl border font-bold ${ans1===selectedPassage.option1a ? 'bg-purple-600 text-white' : 'bg-white text-gray-900 border-purple-200'}`}>{selectedPassage.option1a}</button>
                   <button onClick={() => setAns1(selectedPassage.option1b)} className={`px-5 py-2 rounded-xl border font-bold ${ans1===selectedPassage.option1b ? 'bg-purple-600 text-white' : 'bg-white text-gray-900 border-purple-200'}`}>{selectedPassage.option1b}</button>
@@ -262,7 +288,8 @@ export default function StudentReadingPage() {
                 </div>
               </div>
               <div>
-                <p className="font-bold mb-3 text-gray-900">2. {selectedPassage.question2}</p>
+                {/* NEW: Dynamic Font Size for Question 2 */}
+                <p className={`${fontSize === 'small' ? 'text-sm' : fontSize === 'medium' ? 'text-base' : 'text-lg'} font-bold mb-3 text-gray-900`}>2. {selectedPassage.question2}</p>
                 <div className="flex gap-4 flex-wrap">
                   <button onClick={() => setAns2(selectedPassage.option2a)} className={`px-5 py-2 rounded-xl border font-bold ${ans2===selectedPassage.option2a ? 'bg-purple-600 text-white' : 'bg-white text-gray-900 border-purple-200'}`}>{selectedPassage.option2a}</button>
                   <button onClick={() => setAns2(selectedPassage.option2b)} className={`px-5 py-2 rounded-xl border font-bold ${ans2===selectedPassage.option2b ? 'bg-purple-600 text-white' : 'bg-white text-gray-900 border-purple-200'}`}>{selectedPassage.option2b}</button>
