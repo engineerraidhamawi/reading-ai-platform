@@ -419,7 +419,12 @@ def delete_user(user_id: int, current_user: User = Depends(get_current_user), db
 
 @app.put("/api/users/{user_id}/reset-password")
 def reset_password(user_id: int, new_password: str = Form(...), current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    # ==========================================
+    if current_user.role != "admin": raise HTTPException(status_code=403, detail="Admin only")
+    user = db.query(User).filter(User.id == user_id).first()
+    if user: user.hashed_password = pwd_context.hash(new_password); db.commit()
+    return {"message": "Reset"}
+
+# ==========================================
 # STUDENT GAMIFICATION & STATS ENDPOINT
 # ==========================================
 @app.get("/api/student/stats")
@@ -469,10 +474,7 @@ def get_student_stats(current_user: User = Depends(get_current_user), db: Sessio
         "streak": streak,
         "badges": badges
     }
-    if current_user.role != "admin": raise HTTPException(status_code=403, detail="Admin only")
-    user = db.query(User).filter(User.id == user_id).first()
-    if user: user.hashed_password = pwd_context.hash(new_password); db.commit()
-    return {"message": "Reset"}
+
 # ==========================================
 # ARABIC READABILITY SCORE ENDPOINT
 # ==========================================
