@@ -1,5 +1,5 @@
 import os
-from sqlalchemy import create_engine, Column, String, Integer, Float, Boolean, DateTime, Text, ForeignKey
+from sqlalchemy import create_engine, Column, String, Integer, Float, Boolean, DateTime, Text, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import declarative_base, sessionmaker
 import datetime
 from passlib.context import CryptContext
@@ -55,6 +55,7 @@ class Passage(Base):
     text = Column(Text)
     level = Column(String)
     created_by = Column(Integer, ForeignKey("users.id"))
+    assigned_to = Column(Integer, ForeignKey("users.id"), nullable=True) # NEW: Targeted Assignments
     
     question1 = Column(Text, nullable=True)
     option1a = Column(String, nullable=True)
@@ -67,6 +68,18 @@ class Passage(Base):
     option2b = Column(String, nullable=True)
     option2c = Column(String, nullable=True)
     answer2 = Column(String, nullable=True)
+
+# NEW: WordBank Table
+class WordBank(Base):
+    __tablename__ = "word_bank"
+    id = Column(Integer, primary_key=True, index=True)
+    student_id = Column(Integer, ForeignKey("users.id"))
+    word = Column(String, index=True)
+    times_correct = Column(Integer, default=0)
+    times_wrong = Column(Integer, default=0)
+    is_mastered = Column(Boolean, default=False)
+
+WordBank.__table_args__ = (UniqueConstraint('student_id', 'word', name='_student_word_uc'),)
 
 Base.metadata.create_all(bind=engine)
 
