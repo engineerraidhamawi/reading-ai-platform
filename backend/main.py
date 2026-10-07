@@ -178,53 +178,72 @@ class GeneratePromptRequest(BaseModel):
     grade_level: str
     num_questions: int = 4
 
+# ==========================================
+# BULLETPROOF AI PASSAGE GENERATION ENDPOINT
+# ==========================================
 @app.post("/api/passages/generate")
 async def generate_ai_passage(request: GeneratePromptRequest, current_user: User = Depends(get_current_user)):
     if current_user.role not in ["doctor", "admin"]:
         raise HTTPException(status_code=403, detail="Doctors/Admins only")
     
-    try:
-        prompt = f"""
-        You are an expert Arabic reading education specialist. 
-        Generate a short reading passage suitable for a {request.grade_level} grade student.
-        The passage should be engaging and culturally appropriate.
-        
-        Then, generate exactly {request.num_questions} comprehension questions based on the passage.
-        Each question must have 3 options and one correct answer.
-        
-        Return the response strictly as a JSON object with this EXACT structure:
-        {{
-            "text": "The Arabic passage here...",
-            "questions": [
-                {{
-                    "q": "Question text?",
-                    "o1": "Option 1",
-                    "o2": "Option 2",
-                    "o3": "Option 3",
-                    "ans": "The correct option text"
-                }}
-            ]
-        }}
-        Ensure there are exactly {request.num_questions} question objects in the array.
-        """
-        
-        chat_completion = groq_client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": "You are a helpful AI assistant designed to output JSON."},
-                {"role": "user", "content": prompt}
-            ],
-            model="mixtral-8x7b-32768",
-            response_format={"type": "json_object"}
-        )
-        
-        generated_data = json.loads(chat_completion.choices[0].message.content)
-        
-        return generated_data
+    prompt = f"""
+    You are an expert Arabic reading education specialist. 
+    Generate a short Arabic reading passage suitable for a {request.grade_level} grade student.
+    Then, generate exactly {request.num_questions} comprehension questions based on the passage.
+    
+    Return STRICTLY a JSON object with this EXACT structure. Do not use markdown.
+    {{
+        "text": "The Arabic passage here...",
+        "questions": [
+            {{
+                "q": "Question text?",
+                "o1": "Option 1",
+                "o2": "Option 2",
+                "o3": "Option 3",
+                "ans": "The correct option text"
+            }}
+        ]
+    }}
+    """
 
-    except Exception as e:
-        print("Groq Generation Error:", e)
-        raise HTTPException(status_code=500, detail="Failed to generate passage with AI.")
-
+    # 1. Model Fallbacks: Try the most stable models in order
+    models_to_try = ["mixtral-8x7b-32768", "gemma2-9b-it", "llama3-8b-8192"]
+    
+    for model_name in models_to_try:
+        try:
+            chat_completion = groq_client.chat.completions.create(
+                messages=[
+                    {"role": "system", "content": "You are a helpful AI assistant designed to output JSON. Output ONLY valid JSON, no markdown formatting."},
+                    {"role": "user", "content": prompt}
+                ],
+                model=model_name,
+                response_format={"type": "json_object"},
+                temperature=0.7
+            )
+            
+            raw_content = chat_completion.choices[0].message.content
+            
+            # 2. JSON Cleaning: Remove markdown wrappers just in case
+            if raw_content.startswith("```json"):
+                raw_content = raw_content[7:]
+            if raw_content.startswith("```"):
+                raw_content = raw_content[3:]
+            if raw_content.endswith("```"):
+                raw_content = raw_content[:-3]
+                
+            generated_data = json.loads(raw_content.strip())
+            
+            # 3. Schema Validation: Ensure keys exist
+            if "text" in generated_data and "questions" in generated_data:
+                # Return the successfully generated data
+                return generated_data
+                
+        except Exception as model_err:
+            print(f"Model {model_name} failed: {model_err}")
+            continue # Try the next model
+            
+    # If all models fail, throw a clear error
+    raise HTTPException(status_code=500, detail="All AI models failed to generate passage.")
 @app.get("/api/sessions")
 def get_sessions(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     query = db.query(ResearchSession, User.username).join(User, ResearchSession.student_id == User.id)
