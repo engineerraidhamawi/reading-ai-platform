@@ -11,7 +11,6 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./reading_platform.db")
 if DATABASE_URL.startswith("postgresql://"):
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg2://", 1)
 
-# This part is CRITICAL so PostgreSQL doesn't crash
 if DATABASE_URL.startswith("sqlite"):
     engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 else:
@@ -55,7 +54,7 @@ class Passage(Base):
     text = Column(Text)
     level = Column(String)
     created_by = Column(Integer, ForeignKey("users.id"))
-    assigned_to = Column(Integer, ForeignKey("users.id"), nullable=True) # Targeted Assignments
+    assigned_to = Column(Integer, ForeignKey("users.id"), nullable=True)
     
     question1 = Column(Text, nullable=True)
     option1a = Column(String, nullable=True)
@@ -69,7 +68,6 @@ class Passage(Base):
     option2c = Column(String, nullable=True)
     answer2 = Column(String, nullable=True)
 
-# WordBank Table
 class WordBank(Base):
     __tablename__ = "word_bank"
     id = Column(Integer, primary_key=True, index=True)
@@ -81,7 +79,19 @@ class WordBank(Base):
 
 WordBank.__table_args__ = (UniqueConstraint('student_id', 'word', name='_student_word_uc'),)
 
+# Create tables if they don't exist
 Base.metadata.create_all(bind=engine)
+
+# ==========================================
+# FORCE ADD NEW COLUMNS IMMEDIATELY
+# ==========================================
+with engine.connect() as connection:
+    try:
+        connection.execute(text("ALTER TABLE passages ADD COLUMN assigned_to INTEGER;"))
+        connection.commit()
+        print("Column 'assigned_to' added successfully.")
+    except Exception as e:
+        print("Column 'assigned_to' already exists or error:", e)
 
 # Create Default Admin, Doctor, Student, and a Default Passage
 db = SessionLocal()
@@ -108,17 +118,6 @@ if not db.query(Passage).first():
 db.commit()
 db.close()
 print("Database ready!")
-
-# ==========================================
-# FORCE ADD NEW COLUMNS TO EXISTING TABLES
-# ==========================================
-with engine.connect() as connection:
-    try:
-        connection.execute(text("ALTER TABLE passages ADD COLUMN assigned_to INTEGER;"))
-        connection.commit()
-        print("Column 'assigned_to' added successfully.")
-    except Exception as e:
-        print("Column 'assigned_to' already exists or error:", e)
 
 def get_db():
     db = SessionLocal()
