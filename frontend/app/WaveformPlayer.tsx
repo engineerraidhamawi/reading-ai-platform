@@ -33,10 +33,9 @@ export default function WaveformPlayer({ audioUrl, transcript }: { audioUrl: str
     ws.on('pause', () => setIsPlaying(false))
     ws.on('finish', () => {
       setIsPlaying(false)
-      setActiveWord(-1) // Reset highlight when finished
+      setActiveWord(-1)
     })
     
-    // NEW: Karaoke highlight logic
     ws.on('audioprocess', (currentTime) => {
       const duration = ws.getDuration()
       if (duration > 0 && words.length > 0) {
@@ -59,7 +58,6 @@ export default function WaveformPlayer({ audioUrl, transcript }: { audioUrl: str
 
   return (
     <div className="mt-2 w-full">
-      {/* NEW: Karaoke Transcript Display */}
       {transcript && (
         <p className="italic mb-2 block text-purple-500 text-xs leading-loose bg-white/60 rounded-md p-2 border border-purple-50 break-words" dir="rtl">
           {words.map((word, idx) => (
