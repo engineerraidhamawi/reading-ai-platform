@@ -258,7 +258,7 @@ export default function StudentReadingPage() {
           <>
             <div className="bg-purple-50 border border-purple-100 p-6 rounded-2xl mb-8 text-center">
               {/* NEW: Dynamic Font Size for Passage */}
-              <p className={`${fontSize === 'small' ? 'text-lg' : fontSize === 'medium' ? 'text-xl' : 'text-2xl'} leading-loose text-gray-900 font-medium`}>{selectedPassage.text}</p>
+              <p className={`${fontSize === 'small' ? 'text-lg' : fontSize === 'medium' ? 'text-2xl' : 'text-4xl'} leading-loose text-gray-900 font-medium`}>{selectedPassage.text}</p>
             </div>
             <div className="flex flex-col items-center gap-4">
               <p className="text-purple-700 font-bold">{status}</p>
@@ -280,7 +280,7 @@ export default function StudentReadingPage() {
             <div className="flex flex-col gap-8">
               <div>
                 {/* NEW: Dynamic Font Size for Question 1 */}
-                <p className={`${fontSize === 'small' ? 'text-sm' : fontSize === 'medium' ? 'text-base' : 'text-lg'} font-bold mb-3 text-gray-900`}>1. {selectedPassage.question1}</p>
+                <p className={`${fontSize === 'small' ? 'text-base' : fontSize === 'medium' ? 'text-xl' : 'text-3xl'} font-bold mb-3 text-gray-900`}>1. {selectedPassage.question1}</p>
                 <div className="flex gap-4 flex-wrap">
                   <button onClick={() => setAns1(selectedPassage.option1a)} className={`px-5 py-2 rounded-xl border font-bold ${ans1===selectedPassage.option1a ? 'bg-purple-600 text-white' : 'bg-white text-gray-900 border-purple-200'}`}>{selectedPassage.option1a}</button>
                   <button onClick={() => setAns1(selectedPassage.option1b)} className={`px-5 py-2 rounded-xl border font-bold ${ans1===selectedPassage.option1b ? 'bg-purple-600 text-white' : 'bg-white text-gray-900 border-purple-200'}`}>{selectedPassage.option1b}</button>
