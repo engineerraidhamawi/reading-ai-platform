@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import axios from 'axios'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, LineChart, Line, PieChart, Pie, Cell } from 'recharts'
+import WaveformPlayer from './WaveformPlayer'
 
 const buildEmptyQuestions = (count: number) => {
   return Array.from({ length: count }, () => ({ q: '', o1: '', o2: '', o3: '', ans: '' }))
@@ -374,7 +375,7 @@ export default function Dashboard() {
                           <td className="py-3 px-3 text-purple-500 text-xs leading-relaxed">
                             <div className="bg-white/60 rounded-md p-2 border border-purple-50 break-words">
                               <p className="italic mb-2 block">"{session.asr_transcript}"</p>
-                              {session.audio_file_id && (<audio controls src={session.audio_file_id} className="w-full h-8 mt-1">Your browser does not support the audio element.</audio>)}
+                                                            {session.audio_file_id && <WaveformPlayer audioUrl={session.audio_file_id} />}
                               
                               {/* NEW: AI Feedback Display */}
                               {feedback[session.session_id] && (
