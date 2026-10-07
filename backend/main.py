@@ -207,7 +207,7 @@ async def generate_ai_passage(request: GeneratePromptRequest, current_user: User
     """
 
     # 1. Model Fallbacks: Try the most stable models in order
-    models_to_try = ["mixtral-8x7b-32768", "gemma2-9b-it", "llama3-8b-8192"]
+    models_to_try = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
     
     for model_name in models_to_try:
         try:
