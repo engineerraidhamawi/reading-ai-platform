@@ -24,6 +24,10 @@ export default function Dashboard() {
   const [showPassageForm, setShowPassageForm] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
 
+  // NEW: Readability Score States
+  const [readabilityScore, setReadabilityScore] = useState<any>(null)
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
+
   const fetchSessions = useCallback(async () => {
     const token = localStorage.getItem('token')
     const role = localStorage.getItem('role')
@@ -79,26 +83,15 @@ export default function Dashboard() {
     setQuestions(newQuestions)
   }
 
-  // ==========================================
-  // FIXED AI GENERATE FUNCTION IS HERE
-  // ==========================================
   const handleGenerateAI = async () => {
     setIsGenerating(true)
     try {
       const token = localStorage.getItem('token')
-      
-      // FIX: The payload must match the FastAPI GeneratePromptRequest schema exactly
       const payload = {
-        grade_level: newGrade,          // changed from 'grade' to 'grade_level'
-        num_questions: questions.length // sending the number of questions dynamically
+        grade_level: newGrade,
+        num_questions: questions.length
       }
-
-      const res = await axios.post('https://reading-ai-platform.onrender.com/api/passages/generate', 
-        payload, 
-        { headers: { Authorization: `Bearer ${token}` } }
-      )
-      
-      // Make sure your FastAPI backend returns 'text' and 'questions' in the JSON response
+      const res = await axios.post('https://reading-ai-platform.onrender.com/api/passages/generate', payload, { headers: { Authorization: `Bearer ${token}` } })
       setNewPassage(res.data.text)
       setQuestions(res.data.questions)
     } catch (err: any) {
@@ -108,7 +101,23 @@ export default function Dashboard() {
       setIsGenerating(false)
     }
   }
-  // ==========================================
+
+  // NEW: Analyze Readability Function
+  const handleAnalyzeReadability = async () => {
+    if (!newPassage) return alert('Please type a passage first.')
+    setIsAnalyzing(true)
+    const token = localStorage.getItem('token')
+    try {
+      const formData = new FormData()
+      formData.append('text', newPassage)
+      const res = await axios.post('https://reading-ai-platform.onrender.com/api/analyze-readability', formData, { headers: { Authorization: `Bearer ${token}` } })
+      setReadabilityScore(res.data)
+    } catch (err) {
+      alert('Failed to analyze text.')
+    } finally {
+      setIsAnalyzing(false)
+    }
+  }
 
   const handleAddPassage = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -123,6 +132,7 @@ export default function Dashboard() {
       
       setNewPassage(''); setNewGrade('الصف الأول'); setQuestions(buildEmptyQuestions(4))
       setShowPassageForm(false)
+      setReadabilityScore(null) // Reset score on save
       alert('تم إضافة النص والأسئلة بنجاح!')
       fetchPassages()
     } catch (err: any) {
@@ -390,6 +400,25 @@ export default function Dashboard() {
                 <div>
                   <label className="block text-xs font-bold text-purple-800 mb-1">نص القراءة</label>
                   <textarea value={newPassage} onChange={(e) => setNewPassage(e.target.value)} placeholder="اكتب النص هنا أو اضغط توليد بالذكاء الاصطناعي..." className="p-2 rounded-lg bg-white border border-purple-100 focus:ring-1 focus:ring-purple-400 h-20 text-xs text-gray-900 w-full" required />
+                  
+                  {/* NEW: Readability Analysis UI */}
+                  <div className="flex items-center gap-2 mt-2">
+                    <button type="button" onClick={handleAnalyzeReadability} disabled={isAnalyzing} className="bg-cyan-600 text-white px-3 py-1.5 rounded-md font-bold text-[10px] hover:bg-cyan-700 transition disabled:opacity-50">
+                      {isAnalyzing ? '⏳ جارٍ التحليل...' : '🔍 تحليل صعوبة النص'}
+                    </button>
+                    {readabilityScore && (
+                      <div className="flex items-center gap-3 bg-cyan-50 p-2 rounded-md border border-cyan-100 flex-1">
+                        <div className="text-center">
+                          <p className="text-xl font-extrabold text-cyan-700 leading-none">{readabilityScore.score}/10</p>
+                          <p className="text-[8px] text-gray-500 font-bold">درجة الصعوبة</p>
+                        </div>
+                        <div className="border-r border-cyan-200 pr-3">
+                          <p className="text-[10px] font-bold text-cyan-800">{readabilityScore.level}</p>
+                          <p className="text-[8px] text-gray-500">كلمات: {readabilityScore.stats.word_count} | جمل: {readabilityScore.stats.sentence_count}</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
                 
                 {questions.map((q, idx) => (
