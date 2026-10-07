@@ -389,11 +389,16 @@ export default function Dashboard() {
                           <td className="py-3 px-3"><span className="px-2 py-1 rounded-full text-xs font-bold bg-purple-100 text-purple-700">{session.comprehension_score}</span></td>
                           <td className="py-3 px-3 text-red-500 text-xs leading-relaxed break-words">{session.error_tags}</td>
                           <td className="py-3 px-3 text-purple-500 text-xs leading-relaxed">
-                            <div className="bg-white/60 rounded-md p-2 border border-purple-50 break-words">
-                              <p className="italic mb-2 block">"{session.asr_transcript}"</p>
-                              {session.audio_file_id && (<WaveformPlayer audioUrl={session.audio_file_id} />)}
+                                                       <div className="bg-white/60 rounded-md p-2 border border-purple-50 break-words">
+                              {session.audio_file_id && (
+                                <WaveformPlayer 
+                                  audioUrl={session.audio_file_id} 
+                                  transcript={session.asr_transcript} 
+                                />
+                              )}
                               
                               {feedback[session.session_id] && (
+                             
                                 <div className="mt-2 bg-indigo-50 p-2 rounded-md border border-indigo-100 text-indigo-800 text-[10px] leading-relaxed">
                                   <span className="font-bold">تقرير الذكاء الاصطناعي: </span>
                                   {feedback[session.session_id]}
