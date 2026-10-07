@@ -63,7 +63,7 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     if user is None: raise credentials_exception
     return user
 
-def upload_to_supabase(file_path, file_name):
+def upload_to_supabase(file_path, file_name, content_type="audio/webm"):
     supabase_url = os.environ.get("SUPABASE_URL")
     supabase_key = os.environ.get("SUPABASE_KEY")
     
@@ -73,7 +73,7 @@ def upload_to_supabase(file_path, file_name):
     headers = {
         "apikey": supabase_key,
         "Authorization": f"Bearer {supabase_key}",
-        "Content-Type": "audio/webm"
+        "Content-Type": content_type
     }
     
     upload_url = f"{supabase_url}/storage/v1/object/audio-files/{file_name}"
@@ -144,20 +144,29 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
     return {"access_token": create_access_token(data={"sub": user.username, "role": user.role, "id": user.id}), "token_type": "bearer", "role": user.role, "username": user.username}
 
 # ==========================================
-# UPDATED: PASSAGE CREATION WITH ASSIGNMENT
+# UPDATED: PASSAGE CREATION WITH ASSIGNMENT & IMAGE
 # ==========================================
 @app.post("/api/passages")
-def create_passage(
+async def create_passage(
     text: str = Form(...), 
     level: str = Form("متوسط"),
-    assigned_to: int = Form(None), # NEW: Accept assignment
+    assigned_to: int = Form(None),
+    image: UploadFile = File(None), # NEW: Accept Image
     question1: str = Form(None), option1a: str = Form(None), option1b: str = Form(None), option1c: str = Form(None), answer1: str = Form(None),
     question2: str = Form(None), option2a: str = Form(None), option2b: str = Form(None), option2c: str = Form(None), answer2: str = Form(None),
     current_user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ):
     if current_user.role not in ["doctor", "admin"]: raise HTTPException(status_code=403, detail="Doctors only")
+    
+    image_url = None
+    if image:
+        temp_img_name = f"img_{datetime.datetime.now().timestamp()}.jpg"
+        with open(temp_img_name, "wb") as f: f.write(await image.read())
+        image_url = upload_to_supabase(temp_img_name, temp_img_name, "image/jpeg")
+        if os.path.exists(temp_img_name): os.remove(temp_img_name)
+
     passage = Passage(
-        text=text, level=level, created_by=current_user.id, assigned_to=assigned_to,
+        text=text, level=level, created_by=current_user.id, assigned_to=assigned_to, image_url=image_url,
         question1=question1, option1a=option1a, option1b=option1b, option1c=option1c, answer1=answer1,
         question2=question2, option2a=option2a, option2b=option2b, option2c=option2c, answer2=answer2
     )
@@ -166,9 +175,6 @@ def create_passage(
     db.refresh(passage)
     return {"message": "Passage created", "id": passage.id}
 
-# ==========================================
-# UPDATED: PASSAGE FETCHING WITH ASSIGNMENT FILTER
-# ==========================================
 @app.get("/api/passages")
 def get_passages(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     if current_user.role == "doctor":
@@ -176,7 +182,6 @@ def get_passages(current_user: User = Depends(get_current_user), db: Session = D
     elif current_user.role == "student":
         doctor = db.query(User).filter(User.id == current_user.doctor_id).first()
         if doctor: 
-            # Student only sees passages assigned to them, or assigned to "Everyone" (null)
             return db.query(Passage).filter(
                 Passage.created_by == doctor.id,
                 (Passage.assigned_to == current_user.id) | (Passage.assigned_to == None)
@@ -270,7 +275,7 @@ async def upload_audio(
     temp_file_name = f"audio_{datetime.datetime.now().timestamp()}.webm"
     with open(temp_file_name, "wb") as f: f.write(await audio.read())
     
-    audio_url = upload_to_supabase(temp_file_name, temp_file_name)
+    audio_url = upload_to_supabase(temp_file_name, temp_file_name, "audio/webm")
     
     with open(temp_file_name, "rb") as file:
         transcription = groq_client.audio.transcriptions.create(
@@ -604,9 +609,6 @@ def get_student_wordbank(current_user: User = Depends(get_current_user), db: Ses
         "struggling": struggling
     }
 
-# ==========================================
-# NEW: DOCTOR'S STUDENTS LIST ENDPOINT
-# ==========================================
 @app.get("/api/doctor/students")
 def get_doctors_students(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     if current_user.role not in ["doctor", "admin"]:
