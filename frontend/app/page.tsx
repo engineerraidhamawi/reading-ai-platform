@@ -3,7 +3,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import axios from 'axios'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, LineChart, Line, PieChart, Pie, Cell } from 'recharts'
-import WaveformPlayer from './WaveformPlayer'
 
 const buildEmptyQuestions = (count: number) => {
   return Array.from({ length: count }, () => ({ q: '', o1: '', o2: '', o3: '', ans: '' }))
@@ -24,21 +23,6 @@ export default function Dashboard() {
   
   const [showPassageForm, setShowPassageForm] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
-
-  // Readability Score States
-  const [readabilityScore, setReadabilityScore] = useState<any>(null)
-  const [isAnalyzing, setIsAnalyzing] = useState(false)
-
-  // AI Feedback States
-  const [feedback, setFeedback] = useState<{ [key: string]: string }>({})
-  const [generatingFeedback, setGeneratingFeedback] = useState<string | null>(null)
-
-  // Assignment States
-  const [doctorStudents, setDoctorStudents] = useState<any[]>([])
-  const [assignedTo, setAssignedTo] = useState<string>("")
-  
-  // NEW: Image Upload State
-  const [passageImage, setPassageImage] = useState<File | null>(null)
 
   const fetchSessions = useCallback(async () => {
     const token = localStorage.getItem('token')
@@ -62,21 +46,12 @@ export default function Dashboard() {
     } catch (err) { console.error("Failed to fetch passages") }
   }, [])
 
-  const fetchDoctorStudents = useCallback(async () => {
-    const token = localStorage.getItem('token')
-    try {
-      const res = await axios.get('https://reading-ai-platform.onrender.com/api/doctor/students', { headers: { Authorization: `Bearer ${token}` } })
-      setDoctorStudents(res.data)
-    } catch (err) { console.error("Failed to fetch students") }
-  }, [])
-
   useEffect(() => {
     fetchSessions()
     fetchPassages()
-    fetchDoctorStudents()
     const interval = setInterval(fetchSessions, 5000)
     return () => clearInterval(interval)
-  }, [fetchSessions, fetchPassages, fetchDoctorStudents])
+  }, [fetchSessions, fetchPassages])
 
   const handleExport = async () => {
     const token = localStorage.getItem('token')
@@ -108,31 +83,16 @@ export default function Dashboard() {
     setIsGenerating(true)
     try {
       const token = localStorage.getItem('token')
-      const payload = { grade_level: newGrade, num_questions: questions.length }
-      const res = await axios.post('https://reading-ai-platform.onrender.com/api/passages/generate', payload, { headers: { Authorization: `Bearer ${token}` } })
+      const res = await axios.post('https://reading-ai-platform.onrender.com/api/passages/generate', 
+        { grade: newGrade }, 
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
       setNewPassage(res.data.text)
       setQuestions(res.data.questions)
-    } catch (err: any) {
-      console.error("AI Generation Error:", err.response?.data)
-      alert('Failed to generate passage. Check console for details.')
+    } catch (err) {
+      alert('Failed to generate passage. Please try again.')
     } finally {
       setIsGenerating(false)
-    }
-  }
-
-  const handleAnalyzeReadability = async () => {
-    if (!newPassage) return alert('Please type a passage first.')
-    setIsAnalyzing(true)
-    const token = localStorage.getItem('token')
-    try {
-      const formData = new FormData()
-      formData.append('text', newPassage)
-      const res = await axios.post('https://reading-ai-platform.onrender.com/api/analyze-readability', formData, { headers: { Authorization: `Bearer ${token}` } })
-      setReadabilityScore(res.data)
-    } catch (err) {
-      alert('Failed to analyze text.')
-    } finally {
-      setIsAnalyzing(false)
     }
   }
 
@@ -144,23 +104,11 @@ export default function Dashboard() {
       formData.append('text', newPassage)
       formData.append('level', newGrade)
       formData.append('questions_data', JSON.stringify(questions))
-      
-      if (assignedTo) {
-        formData.append('assigned_to', assignedTo)
-      }
-
-      // NEW: Append Image
-      if (passageImage) {
-        formData.append('image', passageImage)
-      }
 
       await axios.post('https://reading-ai-platform.onrender.com/api/passages', formData, { headers: { Authorization: `Bearer ${token}` } })
       
       setNewPassage(''); setNewGrade('الصف الأول'); setQuestions(buildEmptyQuestions(4))
       setShowPassageForm(false)
-      setReadabilityScore(null) 
-      setAssignedTo("")
-      setPassageImage(null) // Reset image
       alert('تم إضافة النص والأسئلة بنجاح!')
       fetchPassages()
     } catch (err: any) {
@@ -184,19 +132,6 @@ export default function Dashboard() {
       await axios.delete(`https://reading-ai-platform.onrender.com/api/sessions/${id}`, { headers: { Authorization: `Bearer ${token}` } })
       fetchSessions()
     } catch (err) { alert('Failed to delete session') }
-  }
-
-  const handleGenerateFeedback = async (sessionId: string) => {
-    setGeneratingFeedback(sessionId)
-    const token = localStorage.getItem('token')
-    try {
-      const res = await axios.post(`https://reading-ai-platform.onrender.com/api/sessions/${sessionId}/feedback`, {}, { headers: { Authorization: `Bearer ${token}` } })
-      setFeedback({ ...feedback, [sessionId]: res.data.feedback })
-    } catch (err) {
-      alert('Failed to generate feedback.')
-    } finally {
-      setGeneratingFeedback(null)
-    }
   }
 
   const handlePrintReport = (studentName: string) => {
@@ -397,28 +332,12 @@ export default function Dashboard() {
                           <td className="py-3 px-3 text-red-500 text-xs leading-relaxed break-words">{session.error_tags}</td>
                           <td className="py-3 px-3 text-purple-500 text-xs leading-relaxed">
                             <div className="bg-white/60 rounded-md p-2 border border-purple-50 break-words">
-                              {session.audio_file_id && (
-                                <WaveformPlayer 
-                                  audioUrl={session.audio_file_id} 
-                                  transcript={session.asr_transcript} 
-                                />
-                              )}
-                              
-                              {feedback[session.session_id] && (
-                                <div className="mt-2 bg-indigo-50 p-2 rounded-md border border-indigo-100 text-indigo-800 text-[10px] leading-relaxed">
-                                  <span className="font-bold">تقرير الذكاء الاصطناعي: </span>
-                                  {feedback[session.session_id]}
-                                </div>
-                              )}
+                              <p className="italic mb-2 block">"{session.asr_transcript}"</p>
+                              {session.audio_file_id && (<audio controls src={session.audio_file_id} className="w-full h-8 mt-1">Your browser does not support the audio element.</audio>)}
                             </div>
                           </td>
                           <td className="py-3 px-3 text-center">
-                            <div className="flex flex-col gap-2 items-center">
-                              <button onClick={() => handleGenerateFeedback(session.session_id)} disabled={generatingFeedback === session.session_id} className="bg-indigo-500 text-white px-2 py-1 rounded-lg text-[10px] hover:bg-indigo-600 disabled:opacity-50 w-full">
-                                {generatingFeedback === session.session_id ? '⏳...' : '🤖 تقرير AI'}
-                              </button>
-                              <button onClick={() => handleDeleteSession(session.session_id)} className="text-red-500 hover:text-red-700 text-lg">🗑️</button>
-                            </div>
+                            <button onClick={() => handleDeleteSession(session.session_id)} className="text-red-500 hover:text-red-700 text-lg">🗑️</button>
                           </td>
                         </tr>
                       )
@@ -449,55 +368,14 @@ export default function Dashboard() {
                       {grades.map(g => <option key={g} value={g}>{g}</option>)}
                     </select>
                   </div>
-                  
-                  <div className="flex-1">
-                    <label className="block text-xs font-bold text-purple-800 mb-1">إرسال إلى</label>
-                    <select value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)} className="w-full p-2 rounded-md bg-white border border-purple-100 text-xs text-gray-900">
-                      <option value="">الجميع (Everyone)</option>
-                      {doctorStudents.map((s) => (
-                        <option key={s.id} value={s.id}>{s.username}</option>
-                      ))}
-                    </select>
-                  </div>
-
                   <button type="button" onClick={handleGenerateAI} disabled={isGenerating} className="bg-gradient-to-r from-pink-500 to-purple-500 text-white px-4 py-2 rounded-md font-bold text-xs hover:scale-105 transition disabled:opacity-50">
                     {isGenerating ? '⏳ جارٍ التوليد...' : '✨ توليد بالذكاء الاصطناعي'}
                   </button>
                 </div>
 
-                {/* NEW: Image Upload Field */}
-                <div className="mb-2">
-                  <label className="block text-xs font-bold text-purple-800 mb-1">صورة القصة (Story Image)</label>
-                  <input 
-                    type="file" 
-                    accept="image/*" 
-                    onChange={(e) => setPassageImage(e.target.files?.[0] || null)} 
-                    className="text-xs text-gray-700 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100 w-full"
-                  />
-                </div>
-
                 <div>
                   <label className="block text-xs font-bold text-purple-800 mb-1">نص القراءة</label>
                   <textarea value={newPassage} onChange={(e) => setNewPassage(e.target.value)} placeholder="اكتب النص هنا أو اضغط توليد بالذكاء الاصطناعي..." className="p-2 rounded-lg bg-white border border-purple-100 focus:ring-1 focus:ring-purple-400 h-20 text-xs text-gray-900 w-full" required />
-                  
-                  {/* Readability Analysis UI */}
-                  <div className="flex items-center gap-2 mt-2">
-                    <button type="button" onClick={handleAnalyzeReadability} disabled={isAnalyzing} className="bg-cyan-600 text-white px-3 py-1.5 rounded-md font-bold text-[10px] hover:bg-cyan-700 transition disabled:opacity-50">
-                      {isAnalyzing ? '⏳ جارٍ التحليل...' : '🔍 تحليل صعوبة النص'}
-                    </button>
-                    {readabilityScore && (
-                      <div className="flex items-center gap-3 bg-cyan-50 p-2 rounded-md border border-cyan-100 flex-1">
-                        <div className="text-center">
-                          <p className="text-xl font-extrabold text-cyan-700 leading-none">{readabilityScore.score}/10</p>
-                          <p className="text-[8px] text-gray-500 font-bold">درجة الصعوبة</p>
-                        </div>
-                        <div className="border-r border-cyan-200 pr-3">
-                          <p className="text-[10px] font-bold text-cyan-800">{readabilityScore.level}</p>
-                          <p className="text-[8px] text-gray-500">كلمات: {readabilityScore.stats.word_count} | جمل: {readabilityScore.stats.sentence_count}</p>
-                        </div>
-                      </div>
-                    )}
-                  </div>
                 </div>
                 
                 {questions.map((q, idx) => (
@@ -542,12 +420,7 @@ export default function Dashboard() {
                       ) : (
                         passages.filter(p => p.level === grade).map(p => (
                           <div key={p.id} className="flex justify-between items-center p-2 bg-white hover:bg-purple-50/30 transition">
-                            <div className="flex flex-col">
-                              <span className="text-xs text-gray-800 font-medium max-w-[80%] truncate">{p.text}</span>
-                              {p.assigned_to && (
-                                <span className="text-[10px] text-indigo-500 font-bold mt-1">مخصص لطالب معين</span>
-                              )}
-                            </div>
+                            <span className="text-xs text-gray-800 font-medium max-w-[80%] truncate">{p.text}</span>
                             <button onClick={() => handleDeletePassage(p.id)} className="text-red-500 hover:text-red-700 text-xs font-bold">🗑️ حذف</button>
                           </div>
                         ))
