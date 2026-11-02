@@ -155,7 +155,7 @@ async def generate_passage_ai(req: GenerateRequest, current_user: User = Depends
     """
     try:
         response = groq_client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model="gemma2-9b-it",
             response_format={"type": "json_object"},
             messages=[{"role": "user", "content": prompt}]
         )
