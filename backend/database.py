@@ -1,13 +1,11 @@
 import os
-from sqlalchemy import create_engine, Column, String, Integer, Float, Boolean, DateTime, Text, ForeignKey, UniqueConstraint, text
+from sqlalchemy import create_engine, Column, String, Integer, Float, Boolean, DateTime, Text, ForeignKey
 from sqlalchemy.orm import declarative_base, sessionmaker
 import datetime
 from passlib.context import CryptContext
 
-# Read the URL from Render's environment variables
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./reading_platform.db")
 
-# CRITICAL FIX: Force SQLAlchemy to use psycopg2 instead of psycopg (psycopg3)
 if DATABASE_URL.startswith("postgresql://"):
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg2://", 1)
 
@@ -54,46 +52,10 @@ class Passage(Base):
     text = Column(Text)
     level = Column(String)
     created_by = Column(Integer, ForeignKey("users.id"))
-    assigned_to = Column(Integer, ForeignKey("users.id"), nullable=True)
-    
-    question1 = Column(Text, nullable=True)
-    option1a = Column(String, nullable=True)
-    option1b = Column(String, nullable=True)
-    option1c = Column(String, nullable=True)
-    answer1 = Column(String, nullable=True)
-    
-    question2 = Column(Text, nullable=True)
-    option2a = Column(String, nullable=True)
-    option2b = Column(String, nullable=True)
-    option2c = Column(String, nullable=True)
-    answer2 = Column(String, nullable=True)
+    questions_data = Column(Text, nullable=True)
 
-class WordBank(Base):
-    __tablename__ = "word_bank"
-    id = Column(Integer, primary_key=True, index=True)
-    student_id = Column(Integer, ForeignKey("users.id"))
-    word = Column(String, index=True)
-    times_correct = Column(Integer, default=0)
-    times_wrong = Column(Integer, default=0)
-    is_mastered = Column(Boolean, default=False)
-
-WordBank.__table_args__ = (UniqueConstraint('student_id', 'word', name='_student_word_uc'),)
-
-# Create tables if they don't exist
 Base.metadata.create_all(bind=engine)
 
-# ==========================================
-# FORCE ADD NEW COLUMNS IMMEDIATELY
-# ==========================================
-with engine.connect() as connection:
-    try:
-        connection.execute(text("ALTER TABLE passages ADD COLUMN assigned_to INTEGER;"))
-        connection.commit()
-        print("Column 'assigned_to' added successfully.")
-    except Exception as e:
-        print("Column 'assigned_to' already exists or error:", e)
-
-# Create Default Admin, Doctor, Student, and a Default Passage
 db = SessionLocal()
 
 if not db.query(User).filter(User.username == "admin").first():
@@ -112,7 +74,12 @@ if not db.query(User).filter(User.username == "student1").first():
     print("Student created (student1 / 12345)")
 
 if not db.query(Passage).first():
-    db.add(Passage(text="ذهب أحمد إلى الحديقة ليلعب مع أصدقائه. ركضوا وضحكوا كثيراً حتى غابت الشمس.", level="متوسط", created_by=doc.id, question1="أين ذهب أحمد؟", option1a="المدرسة", option1b="الحديقة", option1c="المنزل", answer1="الحديقة", question2="من هو بطل القصة؟", option2a="أحمد", option2b="خالد", option2c="علي", answer2="أحمد"))
+    import json
+    default_questions = [
+        {"q": "أين ذهب أحمد؟", "o1": "المدرسة", "o2": "الحديقة", "o3": "المنزل", "ans": "الحديقة"},
+        {"q": "من هو بطل القصة؟", "o1": "أحمد", "o2": "خالد", "o3": "علي", "ans": "أحمد"}
+    ]
+    db.add(Passage(text="ذهب أحمد إلى الحديقة ليلعب مع أصدقائه. ركضوا وضحكوا كثيراً حتى غابت الشمس.", level="الصف الأول", created_by=doc.id, questions_data=json.dumps(default_questions)))
     print("Default passage created")
 
 db.commit()
