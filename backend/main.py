@@ -5,7 +5,7 @@ from fastapi.responses import StreamingResponse, FileResponse
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
-from database import Base, engine, SessionLocal, User, ResearchSession, Passage, WordBank, get_db
+from database import Base, engine, SessionLocal, User, ResearchSession, Passage, get_db
 from groq import Groq
 import datetime
 import difflib
@@ -63,28 +63,17 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     if user is None: raise credentials_exception
     return user
 
-def upload_to_supabase(file_path, file_name, content_type="audio/webm"):
+def upload_to_supabase(file_path, file_name):
     supabase_url = os.environ.get("SUPABASE_URL")
     supabase_key = os.environ.get("SUPABASE_KEY")
-    
     with open(file_path, "rb") as f:
         file_data = f.read()
-        
-    headers = {
-        "apikey": supabase_key,
-        "Authorization": f"Bearer {supabase_key}",
-        "Content-Type": content_type
-    }
-    
+    headers = {"apikey": supabase_key, "Authorization": f"Bearer {supabase_key}", "Content-Type": "audio/webm"}
     upload_url = f"{supabase_url}/storage/v1/object/audio-files/{file_name}"
     response = requests.post(upload_url, headers=headers, data=file_data)
-    
     if response.status_code == 200:
-        public_url = f"{supabase_url}/storage/v1/object/public/audio-files/{file_name}"
-        return public_url
-    else:
-        print("Supabase Upload Error:", response.text)
-        return None
+        return f"{supabase_url}/storage/v1/object/public/audio-files/{file_name}"
+    return None
 
 @app.post("/auth/register")
 def register_user(username: str = Form(...), password: str = Form(...), role: str = Form(...), doctor_username: str = Form(None), current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -101,36 +90,20 @@ def register_user(username: str = Form(...), password: str = Form(...), role: st
 
 @app.post("/auth/register/bulk")
 async def register_bulk_users(file: UploadFile = File(...), current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="Admin only")
-    
+    if current_user.role != "admin": raise HTTPException(status_code=403, detail="Admin only")
     contents = await file.read()
-    decoded = contents.decode('utf-8').splitlines()
-    reader = csv.reader(decoded)
-    
+    reader = csv.reader(contents.decode('utf-8').splitlines())
     created_count = 0
-    errors = []
-    
     for i, row in enumerate(reader):
         if i == 0 or len(row) < 3: continue
-            
         username, password, doctor_username = row[0].strip(), row[1].strip(), row[2].strip()
-        
-        if db.query(User).filter(User.username == username).first():
-            errors.append(f"Row {i+1}: User '{username}' already exists.")
-            continue
-            
-        doctor = db.query(User).filter(User.username == doctor_username, User.role == "doctor").first()
-        if not doctor:
-            errors.append(f"Row {i+1}: Doctor '{doctor_username}' not found.")
-            continue
-            
-        new_user = User(username=username, hashed_password=pwd_context.hash(password), role="student", doctor_id=doctor.id)
-        db.add(new_user)
-        created_count += 1
-        
+        if not db.query(User).filter(User.username == username).first():
+            doctor = db.query(User).filter(User.username == doctor_username, User.role == "doctor").first()
+            if doctor:
+                db.add(User(username=username, hashed_password=pwd_context.hash(password), role="student", doctor_id=doctor.id))
+                created_count += 1
     db.commit()
-    return {"message": f"Successfully created {created_count} students.", "errors": errors}
+    return {"message": f"Successfully created {created_count} students."}
 
 @app.get("/auth/doctors")
 def get_doctors(db: Session = Depends(get_db)):
@@ -143,33 +116,59 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
         raise HTTPException(status_code=400, detail="Incorrect username or password")
     return {"access_token": create_access_token(data={"sub": user.username, "role": user.role, "id": user.id}), "token_type": "bearer", "role": user.role, "username": user.username}
 
-# ==========================================
-# UPDATED: PASSAGE CREATION WITH ASSIGNMENT & IMAGE
-# ==========================================
-@app.post("/api/passages")
-async def create_passage(
-    text: str = Form(...), 
-    level: str = Form("متوسط"),
-    assigned_to: int = Form(None),
-    image: UploadFile = File(None), # NEW: Accept Image
-    question1: str = Form(None), option1a: str = Form(None), option1b: str = Form(None), option1c: str = Form(None), answer1: str = Form(None),
-    question2: str = Form(None), option2a: str = Form(None), option2b: str = Form(None), option2c: str = Form(None), answer2: str = Form(None),
-    current_user: User = Depends(get_current_user), db: Session = Depends(get_db)
-):
+class GenerateRequest(BaseModel):
+    grade: str
+
+@app.post("/api/passages/generate")
+async def generate_passage_ai(req: GenerateRequest, current_user: User = Depends(get_current_user)):
     if current_user.role not in ["doctor", "admin"]: raise HTTPException(status_code=403, detail="Doctors only")
     
-    image_url = None
-    if image:
-        temp_img_name = f"img_{datetime.datetime.now().timestamp()}.jpg"
-        with open(temp_img_name, "wb") as f: f.write(await image.read())
-        image_url = upload_to_supabase(temp_img_name, temp_img_name, "image/jpeg")
-        if os.path.exists(temp_img_name): os.remove(temp_img_name)
+    if "الأول" in req.grade or "الثاني" in req.grade:
+        q_count = 4
+        level_desc = "بسيط جداً وقصير، مناسب لأطفال الصف الأول والثاني. استخدم كلمات سهلة وجمل قصيرة."
+    elif "الثالث" in req.grade or "الرابع" in req.grade:
+        q_count = 5
+        level_desc = "متوسط الطول والصعوبة، مناسب لأطفال الصف الثالث والرابع."
+    else:
+        q_count = 6
+        level_desc = "متقدم قليلاً وأطول، مناسب لأطفال الصف الخامس والسادس."
+        
+    prompt = f"""
+    أنت خبير في تعليم اللغة العربية للأطفال. قم بإنشاء نص قرائي {level_desc}.
+    الموضوع يجب أن يكون ممتعاً للأطفال (مثل الحيوانات، المغامرات، الطبيعة).
+    بعد النص، قم بإنشاء {q_count} أسئلة اختيار من متعدد لاختبار فهم الطالب للنص.
+    يجب أن يحتوي كل سؤال على نص السؤال (q)، وثلاثة خيارات (o1, o2, o3)، والإجابة الصحيحة (ans).
+    
+    أرجع النتيجة بصيغة JSON فقط بدون أي نص إضافي:
+    {{
+      "text": "النص القرائي هنا...",
+      "questions": [
+        {{
+          "q": "السؤال الأول؟",
+          "o1": "الخيار الأول",
+          "o2": "الخيار الثاني",
+          "o3": "الخيار الثالث",
+          "ans": "الإجابة الصحيحة (يجب أن تتطابق مع أحد الخيارات)"
+        }}
+      ]
+    }}
+    """
+    try:
+        response = groq_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            response_format={"type": "json_object"},
+            messages=[{"role": "user", "content": prompt}]
+        )
+        data = json.loads(response.choices[0].message.content)
+        return data
+    except Exception as e:
+        print("AI Generation Error:", e)
+        raise HTTPException(status_code=500, detail="Failed to generate passage")
 
-    passage = Passage(
-        text=text, level=level, created_by=current_user.id, assigned_to=assigned_to, image_url=image_url,
-        question1=question1, option1a=option1a, option1b=option1b, option1c=option1c, answer1=answer1,
-        question2=question2, option2a=option2a, option2b=option2b, option2c=option2c, answer2=answer2
-    )
+@app.post("/api/passages")
+def create_passage(text: str = Form(...), level: str = Form("متوسط"), questions_data: str = Form(...), current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if current_user.role not in ["doctor", "admin"]: raise HTTPException(status_code=403, detail="Doctors only")
+    passage = Passage(text=text, level=level, created_by=current_user.id, questions_data=questions_data)
     db.add(passage)
     db.commit()
     db.refresh(passage)
@@ -181,72 +180,8 @@ def get_passages(current_user: User = Depends(get_current_user), db: Session = D
         return db.query(Passage).filter(Passage.created_by == current_user.id).all()
     elif current_user.role == "student":
         doctor = db.query(User).filter(User.id == current_user.doctor_id).first()
-        if doctor: 
-            return db.query(Passage).filter(
-                Passage.created_by == doctor.id,
-                (Passage.assigned_to == current_user.id) | (Passage.assigned_to == None)
-            ).all()
+        if doctor: return db.query(Passage).filter(Passage.created_by == doctor.id).all()
     return db.query(Passage).all()
-
-# ==========================================
-# AI PASSAGE GENERATION ENDPOINT
-# ==========================================
-class GeneratePromptRequest(BaseModel):
-    grade_level: str
-    num_questions: int = 4
-
-@app.post("/api/passages/generate")
-async def generate_ai_passage(request: GeneratePromptRequest, current_user: User = Depends(get_current_user)):
-    if current_user.role not in ["doctor", "admin"]:
-        raise HTTPException(status_code=403, detail="Doctors/Admins only")
-        
-    grade = request.grade_level
-    num_qs = request.num_questions
-    
-    if "الأول" in grade or "الثاني" in grade:
-        text = "القط يحب اللعب بالكرة. هو يشرب الحليب كل صباح. القط صغير ولطيف. هو ينام على السرير."
-    elif "الثالث" in grade or "الرابع" in grade:
-        text = "ذهب الطالب أحمد إلى المدرسة مبكراً. التقى بأصدقائه في الساحة. دق الجرس، فدخلوا الصف بنظام. بدأ المعلم يشرح درس العلوم عن النباتات."
-    else:
-        text = "تعتبر الصحراء العربية بيئة قاسية لكنها تزخر بالحياة. تتكيف الحيوانات فيها مثل الجمل والثعلب الفنك مع قلة الماء وحرارة الشمس. لكل حيوان صفات خاصة تساعده على البقاء في هذه الظروف الصعبة."
-        
-    words = text.split()
-    questions = []
-    
-    questions.append({
-        "q": "ما هو الموضوع الرئيسي الذي يتحدث عنه النص؟",
-        "o1": "النص يتحدث عن " + words[0] + " " + words[1],
-        "o2": "النص يتحدث عن المدرسة",
-        "o3": "النص يتحدث عن اللعب",
-        "ans": "النص يتحدث عن " + words[0] + " " + words[1]
-    })
-    
-    if len(words) > 4:
-        target_word = words[3].replace(".", "").replace("،", "")
-        questions.append({
-            "q": "ما الكلمة التي وردت في النص؟",
-            "o1": target_word,
-            "o2": "سماء",
-            "o3": "بحر",
-            "ans": target_word
-        })
-        
-    if num_qs >= 3 and len(words) > 5:
-        blank_word = words[4].replace(".", "").replace("،", "")
-        questions.append({
-            "q": "أكمل الفراغ: ... " + words[0] + " " + words[1] + " " + words[2] + " " + words[3],
-            "o1": blank_word,
-            "o2": "بيت",
-            "o3": "كتاب",
-            "ans": blank_word
-        })
-        
-    questions = questions[:num_qs]
-        
-    return {
-        "text": text,
-        "questions": questions
-    }
 
 @app.get("/api/sessions")
 def get_sessions(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -262,31 +197,16 @@ def get_sessions(current_user: User = Depends(get_current_user), db: Session = D
     return sessions_list
 
 @app.post("/api/sessions/upload")
-async def upload_audio(
-    audio: UploadFile = File(...), 
-    passage: str = Form(...), 
-    comprehension_score: str = Form("0/2"), 
-    duration_seconds: float = Form(30.0),
-    current_user: User = Depends(get_current_user), 
-    db: Session = Depends(get_db)
-):
+async def upload_audio(audio: UploadFile = File(...), passage: str = Form(...), comprehension_score: str = Form("0/0"), duration_seconds: float = Form(30.0), current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     if current_user.role != "student": raise HTTPException(status_code=403, detail="Students only")
-    
     temp_file_name = f"audio_{datetime.datetime.now().timestamp()}.webm"
     with open(temp_file_name, "wb") as f: f.write(await audio.read())
-    
-    audio_url = upload_to_supabase(temp_file_name, temp_file_name, "audio/webm")
+    audio_url = upload_to_supabase(temp_file_name, temp_file_name)
     
     with open(temp_file_name, "rb") as file:
-        transcription = groq_client.audio.transcriptions.create(
-            file=(temp_file_name, file.read()),
-            model="whisper-large-v3",
-            language="ar"
-        )
+        transcription = groq_client.audio.transcriptions.create(file=(temp_file_name, file.read()), model="whisper-large-v3", language="ar")
     raw_transcript = transcription.text.strip()
-    
-    if os.path.exists(temp_file_name):
-        os.remove(temp_file_name)
+    if os.path.exists(temp_file_name): os.remove(temp_file_name)
         
     matcher = difflib.SequenceMatcher(None, normalize_arabic(passage).replace(" ", ""), normalize_arabic(raw_transcript).replace(" ", ""))
     accuracy = round(matcher.ratio() * 100, 2)
@@ -295,88 +215,49 @@ async def upload_audio(
     spoken_words = normalize_arabic(raw_transcript).split()
     word_matcher = difflib.SequenceMatcher(None, original_words, spoken_words)
     
-    errors = []
-    word_analysis = []
-    
+    errors, word_analysis = [], []
     for tag, i1, i2, j1, j2 in word_matcher.get_opcodes():
         if tag == 'equal':
-            for word in original_words[i1:i2]:
-                word_analysis.append({"word": word, "status": "correct", "type": "none"})
+            for w in original_words[i1:i2]: word_analysis.append({"word": w, "status": "correct", "type": "none"})
         elif tag == 'delete':
-            for word in original_words[i1:i2]:
-                errors.append(f"حذف:{word}")
-                word_analysis.append({"word": word, "status": "missing", "type": "حذف"})
+            for w in original_words[i1:i2]: errors.append(f"حذف:{w}"); word_analysis.append({"word": w, "status": "missing", "type": "حذف"})
         elif tag == 'replace':
-            for word in original_words[i1:i2]:
-                errors.append(f"إبدال:{word}")
-                word_analysis.append({"word": word, "status": "incorrect", "type": "إبدال"})
+            for w in original_words[i1:i2]: errors.append(f"إبدال:{w}"); word_analysis.append({"word": w, "status": "incorrect", "type": "إبدال"})
         elif tag == 'insert':
-            for word in spoken_words[j1:j2]:
-                errors.append(f"إضافة:{word}")
-                word_analysis.append({"word": word, "status": "extra", "type": "إضافة"})
+            for w in spoken_words[j1:j2]: errors.append(f"إضافة:{w}"); word_analysis.append({"word": w, "status": "extra", "type": "إضافة"})
     
-    stars = 1 
+    stars = 1
     if accuracy >= 75: stars += 1
-    if comprehension_score == "2/2": stars += 1
+    try:
+        score_parts = comprehension_score.split('/')
+        if len(score_parts) == 2 and score_parts[0] == score_parts[1]: stars += 1
+    except: pass
 
-    if duration_seconds > 0:
-        wpm = round((len(spoken_words) / duration_seconds) * 60, 1)
-    else:
-        wpm = 0
+    if duration_seconds > 0: wpm = round((len(spoken_words) / duration_seconds) * 60, 1)
+    else: wpm = 0
 
     new_session = ResearchSession(
         session_id=f"SES-{datetime.datetime.now().timestamp()}", student_id=current_user.id, doctor_id=current_user.doctor_id,
-        age_range="8-10", grade="4", passage_id="PASS", passage_level="متوسط", 
-        audio_file_id=audio_url, 
-        asr_transcript=raw_transcript, 
-        error_tags=";".join(errors) or "لا توجد أخطاء",
+        age_range="8-10", grade="4", passage_id="PASS", passage_level="متوسط", audio_file_id=audio_url, 
+        asr_transcript=raw_transcript, error_tags=";".join(errors) or "لا توجد أخطاء",
         wpm=wpm, accuracy_percent=accuracy, comprehension_score=comprehension_score,
-        duration_seconds=duration_seconds, 
-        consent_given=True, 
-        stars=stars
+        duration_seconds=duration_seconds, consent_given=True, stars=stars
     )
     db.add(new_session)
-    
-    # SAVE TO WORD BANK
-    for w in word_analysis:
-        if w["type"] in ["correct", "حذف", "إبدال"]:
-            word_entry = db.query(WordBank).filter(WordBank.student_id == current_user.id, WordBank.word == w["word"]).first()
-            
-            if not word_entry:
-                word_entry = WordBank(student_id=current_user.id, word=w["word"])
-                db.add(word_entry)
-            
-            if w["status"] == "correct":
-                word_entry.times_correct += 1
-            else:
-                word_entry.times_wrong += 1
-                
-            if word_entry.times_correct >= 3:
-                word_entry.is_mastered = True
-                
     db.commit()
-    
-    return {
-        "accuracy": accuracy, 
-        "transcript": raw_transcript,
-        "word_analysis": word_analysis,
-        "stars": stars
-    }
+    return {"accuracy": accuracy, "transcript": raw_transcript, "word_analysis": word_analysis, "stars": stars}
 
 @app.get("/api/sessions/export")
 def export_sessions(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     if current_user.role not in ["doctor", "admin"]: raise HTTPException(status_code=403, detail="Doctors/Admins only")
     query = db.query(ResearchSession, User.username).join(User, ResearchSession.student_id == User.id)
     if current_user.role == "doctor": query = query.filter(ResearchSession.doctor_id == current_user.id)
-    
     output = io.StringIO()
-    output.write('\ufeff') 
+    output.write('\ufeff')
     writer = csv.writer(output)
     writer.writerow(["Student", "Date", "Duration (s)", "WPM", "Accuracy (%)", "Comprehension", "Errors", "AI Transcript"])
-    
     for session, student_username in query.all():
         writer.writerow([student_username, session.session_date, session.duration_seconds, session.wpm, session.accuracy_percent, session.comprehension_score, session.error_tags, session.asr_transcript])
-    
     output.seek(0)
     return StreamingResponse(output, media_type="text/csv", headers={"Content-Disposition": "attachment; filename=research_data.csv"})
 
@@ -385,8 +266,7 @@ def delete_passage(passage_id: int, current_user: User = Depends(get_current_use
     if current_user.role not in ["doctor", "admin"]: raise HTTPException(status_code=403, detail="Doctors only")
     passage = db.query(Passage).filter(Passage.id == passage_id).first()
     if not passage: raise HTTPException(status_code=404, detail="Passage not found")
-    if current_user.role == "doctor" and passage.created_by != current_user.id:
-        raise HTTPException(status_code=403, detail="Not authorized")
+    if current_user.role == "doctor" and passage.created_by != current_user.id: raise HTTPException(status_code=403, detail="Not authorized")
     db.delete(passage)
     db.commit()
     return {"message": "Passage deleted"}
@@ -396,42 +276,15 @@ def delete_session(session_id: str, current_user: User = Depends(get_current_use
     if current_user.role not in ["doctor", "admin"]: raise HTTPException(status_code=403, detail="Doctors only")
     session = db.query(ResearchSession).filter(ResearchSession.session_id == session_id).first()
     if not session: raise HTTPException(status_code=404, detail="Session not found")
-    if current_user.role == "doctor" and session.doctor_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not authorized")
+    if current_user.role == "doctor" and session.doctor_id != current_user.id: raise HTTPException(status_code=403, detail="Not authorized")
     db.delete(session)
     db.commit()
     return {"message": "Session deleted"}
 
-@app.get("/api/audio/{filename}")
-async def get_audio(filename: str, token: str = Query(...), db: Session = Depends(get_db)):
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        if username is None: raise HTTPException(status_code=401, detail="Invalid token")
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-        
-    user = db.query(User).filter(User.username == username).first()
-    if not user or user.role not in ["doctor", "admin"]:
-        raise HTTPException(status_code=403, detail="Access denied")
-        
-    if ".." in filename or "/" in filename:
-        raise HTTPException(status_code=400, detail="Invalid filename")
-    
-    file_path = filename
-    if os.path.exists(file_path):
-        return FileResponse(path=file_path, media_type="audio/webm")
-    raise HTTPException(status_code=404, detail="Audio file not found")
-
 @app.post("/api/tts")
 async def text_to_speech(text: str = Form(...)):
     try:
-        response = groq_client.audio.speech.create(
-            model="playai-tts-arabic",
-            voice="Maitreya-PlayAI",
-            input=text,
-            response_format="wav"
-        )
+        response = groq_client.audio.speech.create(model="playai-tts-arabic", voice="Maitreya-PlayAI", input=text, response_format="wav")
         return StreamingResponse(io.BytesIO(response.read()), media_type="audio/wav")
     except Exception as e:
         print("TTS Error:", e)
@@ -447,13 +300,8 @@ def delete_user(user_id: int, current_user: User = Depends(get_current_user), db
     if current_user.role != "admin": raise HTTPException(status_code=403, detail="Admin only")
     user = db.query(User).filter(User.id == user_id).first()
     if not user: raise HTTPException(status_code=404, detail="User not found")
-    
-    if user.role == "student":
-        db.query(ResearchSession).filter(ResearchSession.student_id == user_id).delete()
-    elif user.role == "doctor":
-        db.query(Passage).filter(Passage.created_by == user_id).delete()
-        db.query(ResearchSession).filter(ResearchSession.doctor_id == user_id).delete()
-        
+    if user.role == "student": db.query(ResearchSession).filter(ResearchSession.student_id == user_id).delete()
+    elif user.role == "doctor": db.query(Passage).filter(Passage.created_by == user_id).delete(); db.query(ResearchSession).filter(ResearchSession.doctor_id == user_id).delete()
     db.delete(user)
     db.commit()
     return {"message": "Deleted successfully"}
@@ -464,159 +312,3 @@ def reset_password(user_id: int, new_password: str = Form(...), current_user: Us
     user = db.query(User).filter(User.id == user_id).first()
     if user: user.hashed_password = pwd_context.hash(new_password); db.commit()
     return {"message": "Reset"}
-
-@app.get("/api/student/stats")
-def get_student_stats(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    if current_user.role != "student": 
-        raise HTTPException(status_code=403, detail="Students only")
-    
-    sessions = db.query(ResearchSession).filter(ResearchSession.student_id == current_user.id).all()
-    
-    if not sessions:
-        return {"total_sessions": 0, "three_star_count": 0, "max_wpm": 0, "max_accuracy": 0, "streak": 0, "badges": []}
-        
-    total_sessions = len(sessions)
-    three_star_count = len([s for s in sessions if s.stars == 3])
-    max_wpm = max([s.wpm for s in sessions if s.wpm is not None] or [0])
-    max_accuracy = max([s.accuracy_percent for s in sessions if s.accuracy_percent is not None] or [0])
-    
-    dates = sorted([s.session_date.date() for s in sessions], reverse=True)
-    streak = 0
-    today = datetime.date.today()
-    
-    if dates and (dates[0] == today or dates[0] == today - datetime.timedelta(days=1)):
-        streak = 1
-        for i in range(len(dates)-1):
-            if dates[i] - dates[i+1] == datetime.timedelta(days=1):
-                streak += 1
-            else:
-                break
-
-    badges = []
-    if streak >= 3:
-        badges.append({"icon": "🔥", "name": "المواظبة", "desc": "قرأت 3 أيام متتالية"})
-    if three_star_count >= 5:
-        badges.append({"icon": "⭐", "name": "قارئ ممتاز", "desc": "حصلت على 3 نجوم 5 مرات"})
-    if max_wpm >= 100:
-        badges.append({"icon": "🚀", "name": "سريع كالصاروخ", "desc": "وصلت لسرعة 100 كلمة بالدقيقة"})
-    if max_accuracy >= 95:
-        badges.append({"icon": "🎯", "name": "الإتقان", "desc": "حققت دقة 95% أو أكثر"})
-        
-    return {
-        "total_sessions": total_sessions,
-        "three_star_count": three_star_count,
-        "max_wpm": max_wpm,
-        "max_accuracy": round(max_accuracy, 1),
-        "streak": streak,
-        "badges": badges
-    }
-
-@app.post("/api/analyze-readability")
-async def analyze_readability(text: str = Form(...), current_user: User = Depends(get_current_user)):
-    if current_user.role not in ["doctor", "admin"]:
-        raise HTTPException(status_code=403, detail="Doctors/Admins only")
-    
-    words = text.split()
-    num_words = len(words)
-    if num_words == 0:
-        return {"score": 0, "level": "غير معروف"}
-    
-    sentences = re.split(r'[.!?،؛]', text)
-    num_sentences = len([s for s in sentences if s.strip()])
-    if num_sentences == 0: num_sentences = 1
-    
-    avg_word_length = sum(len(w) for w in words) / num_words
-    avg_sentence_length = num_words / num_sentences
-    
-    complex_letters = re.findall(r'[ثذظضخغق]', text)
-    complex_ratio = (len(complex_letters) / num_words) * 100
-    
-    score = 1
-    score += (avg_word_length - 3) * 0.8
-    score += (avg_sentence_length - 5) * 0.3
-    score += complex_ratio * 0.2
-    score = max(1, min(10, round(score)))
-    
-    if score <= 3: level = "مبتدئ (الصف الأول-الثاني)"
-    elif score <= 6: level = "متوسط (الصف الثالث-الرابع)"
-    else: level = "متقدم (الصف الخامس-السادس)"
-        
-    return {
-        "score": score,
-        "level": level,
-        "stats": {
-            "word_count": num_words,
-            "sentence_count": num_sentences,
-            "avg_word_length": round(avg_word_length, 1),
-            "complex_letter_ratio": round(complex_ratio, 1)
-        }
-    }
-
-@app.post("/api/sessions/{session_id}/feedback")
-def generate_session_feedback(session_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    if current_user.role not in ["doctor", "admin"]:
-        raise HTTPException(status_code=403, detail="Doctors/Admins only")
-        
-    session = db.query(ResearchSession).filter(ResearchSession.session_id == session_id).first()
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-        
-    acc = session.accuracy_percent
-    wpm = session.wpm
-    errors = session.error_tags
-    
-    if acc >= 90:
-        s1 = "أداء الطالب ممتاز جداً في هذه الجلسة، حيث أظهر دقة عالية في قراءة الكلمات."
-    elif acc >= 75:
-        s1 = "أداء الطالب جيد، مع وجود بعض الأخطاء البسيطة التي يمكن تحسينها بالتدريب."
-    else:
-        s1 = "يحتاج الطالب إلى مزيد من التدريب والتركيز، حيث كانت الدقة أقل من المتوقع."
-        
-    if wpm >= 100:
-        s2 = "سرعة القراءة ممتازة (" + str(wpm) + " كلمة بالدقيقة)، مما يدل على طلاقة جيدة."
-    elif wpm >= 60:
-        s2 = "سرعة القراءة مناسبة (" + str(wpm) + " كلمة بالدقيقة)، ويحتاج الطالب لزيادة طلاقته تدريجياً."
-    else:
-        s2 = "سرعة القراءة بطيئة نوعاً ما (" + str(wpm) + " كلمة بالدقيقة)، يفضل التدرب على قراءة أسرع."
-        
-    if "لا توجد أخطاء" in errors or not errors:
-        s3 = "لم يتم رصد أخطاء واضحة في النطق، استمر على هذا التميز."
-    else:
-        error_words = [e.split(':')[1] for e in errors.split(';') if ':' in e]
-        if error_words:
-            sample = "، ".join(error_words[:2])
-            s3 = "يلاحظ وجود أخطاء في نطق بعض الكلمات مثل: (" + sample + ")، يرجى التدرب عليها مجدداً."
-        else:
-            s3 = "يلاحظ وجود بعض الأخطاء الإملائية أو الصوتية التي تحتاج إلى مراجعة."
-            
-    feedback_text = s1 + " " + s2 + " " + s3
-    return {"feedback": feedback_text}
-
-@app.get("/api/student/wordbank")
-def get_student_wordbank(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    if current_user.role != "student": 
-        raise HTTPException(status_code=403, detail="Students only")
-        
-    words = db.query(WordBank).filter(WordBank.student_id == current_user.id).all()
-    
-    mastered = [{"word": w.word, "correct": w.times_correct, "wrong": w.times_wrong} for w in words if w.is_mastered]
-    practicing = [{"word": w.word, "correct": w.times_correct, "wrong": w.times_wrong} for w in words if not w.is_mastered and w.times_correct > 0]
-    struggling = [{"word": w.word, "correct": w.times_correct, "wrong": w.times_wrong} for w in words if not w.is_mastered and w.times_correct == 0]
-    
-    return {
-        "mastered": mastered,
-        "practicing": practicing,
-        "struggling": struggling
-    }
-
-@app.get("/api/doctor/students")
-def get_doctors_students(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    if current_user.role not in ["doctor", "admin"]:
-        raise HTTPException(status_code=403, detail="Doctors/Admins only")
-        
-    if current_user.role == "doctor":
-        students = db.query(User).filter(User.role == "student", User.doctor_id == current_user.id).all()
-    else:
-        students = db.query(User).filter(User.role == "student").all()
-        
-    return [{"id": s.id, "username": s.username} for s in students]
