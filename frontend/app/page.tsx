@@ -22,7 +22,6 @@ export default function Dashboard() {
   const [questions, setQuestions] = useState<any[]>(buildEmptyQuestions(4))
   
   const [showPassageForm, setShowPassageForm] = useState(false)
-  const [isGenerating, setIsGenerating] = useState(false)
 
   const fetchSessions = useCallback(async () => {
     const token = localStorage.getItem('token')
@@ -77,23 +76,6 @@ export default function Dashboard() {
     const newQuestions = [...questions]
     newQuestions[index][field] = value
     setQuestions(newQuestions)
-  }
-
-  const handleGenerateAI = async () => {
-    setIsGenerating(true)
-    try {
-      const token = localStorage.getItem('token')
-      const res = await axios.post('https://reading-ai-platform.onrender.com/api/passages/generate', 
-        { grade: newGrade }, 
-        { headers: { Authorization: `Bearer ${token}` } }
-      )
-      setNewPassage(res.data.text)
-      setQuestions(res.data.questions)
-    } catch (err) {
-      alert('Failed to generate passage. Please check the Render logs for the Groq model error.')
-    } finally {
-      setIsGenerating(false)
-    }
   }
 
   const handleAddPassage = async (e: React.FormEvent) => {
@@ -357,21 +339,15 @@ export default function Dashboard() {
           {showPassageForm && (
             <div className="border border-purple-100 p-3 rounded-lg mb-4 bg-purple-50/50">
               <form onSubmit={handleAddPassage} className="flex flex-col gap-3">
-                <div className="flex gap-2 items-end">
-                  <div className="flex-1">
-                    <label className="block text-xs font-bold text-purple-800 mb-1">الصف الدراسي</label>
-                    <select value={newGrade} onChange={(e) => handleGradeChange(e.target.value)} className="w-full p-2 rounded-md bg-white border border-purple-100 text-xs text-gray-900" required>
-                      {grades.map(g => <option key={g} value={g}>{g}</option>)}
-                    </select>
-                  </div>
-                  <button type="button" onClick={handleGenerateAI} disabled={isGenerating} className="bg-gradient-to-r from-pink-500 to-purple-500 text-white px-4 py-2 rounded-md font-bold text-xs hover:scale-105 transition disabled:opacity-50">
-                    {isGenerating ? '⏳ جارٍ التوليد...' : '✨ توليد بالذكاء الاصطناعي'}
-                  </button>
+                <div>
+                  <label className="block text-xs font-bold text-purple-800 mb-1">الصف الدراسي</label>
+                  <select value={newGrade} onChange={(e) => handleGradeChange(e.target.value)} className="w-full p-2 rounded-md bg-white border border-purple-100 text-xs text-gray-900" required>
+                    {grades.map(g => <option key={g} value={g}>{g}</option>)}
+                  </select>
                 </div>
-
                 <div>
                   <label className="block text-xs font-bold text-purple-800 mb-1">نص القراءة</label>
-                  <textarea value={newPassage} onChange={(e) => setNewPassage(e.target.value)} placeholder="اكتب النص هنا أو اضغط توليد بالذكاء الاصطناعي..." className="p-2 rounded-lg bg-white border border-purple-100 focus:ring-1 focus:ring-purple-400 h-20 text-xs text-gray-900 w-full" required />
+                  <textarea value={newPassage} onChange={(e) => setNewPassage(e.target.value)} placeholder="اكتب النص هنا..." className="p-2 rounded-lg bg-white border border-purple-100 focus:ring-1 focus:ring-purple-400 h-20 text-xs text-gray-900 w-full" required />
                 </div>
                 
                 {questions.map((q, idx) => (
