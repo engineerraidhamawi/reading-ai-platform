@@ -162,14 +162,47 @@ def create_passage(
     db.refresh(passage)
     return {"message": "Passage created", "id": passage.id}
 
+def serialize_passage(passage: Passage) -> dict:
+    """Convert flat question fields into a clean questions_data array the frontend expects."""
+    questions = []
+    if passage.question1:
+        questions.append({
+            "question": passage.question1,
+            "options": [
+                {"key": "a", "text": passage.option1a},
+                {"key": "b", "text": passage.option1b},
+                {"key": "c", "text": passage.option1c},
+            ],
+            "answer": passage.answer1,
+        })
+    if passage.question2:
+        questions.append({
+            "question": passage.question2,
+            "options": [
+                {"key": "a", "text": passage.option2a},
+                {"key": "b", "text": passage.option2b},
+                {"key": "c", "text": passage.option2c},
+            ],
+            "answer": passage.answer2,
+        })
+    return {
+        "id": passage.id,
+        "text": passage.text,
+        "level": passage.level,
+        "created_by": passage.created_by,
+        "questions_data": questions,
+    }
+
 @app.get("/api/passages")
 def get_passages(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     if current_user.role == "doctor":
-        return db.query(Passage).filter(Passage.created_by == current_user.id).all()
+        passages = db.query(Passage).filter(Passage.created_by == current_user.id).all()
     elif current_user.role == "student":
         doctor = db.query(User).filter(User.id == current_user.doctor_id).first()
-        if doctor: return db.query(Passage).filter(Passage.created_by == doctor.id).all()
-    return db.query(Passage).all()
+        passages = db.query(Passage).filter(Passage.created_by == doctor.id).all() if doctor else []
+    else:
+        passages = db.query(Passage).all()
+    return [serialize_passage(p) for p in passages]
 
 @app.get("/api/sessions")
 def get_sessions(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
