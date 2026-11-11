@@ -14,7 +14,7 @@ import csv
 import io
 import os
 import json
-from typing import List
+from typing import List, Any
 from pydantic import BaseModel
 import requests
 
@@ -152,6 +152,24 @@ def create_passage(
     current_user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ):
     if current_user.role not in ["doctor", "admin"]: raise HTTPException(status_code=403, detail="Doctors only")
+    
+    # DEBUG: print what we actually received so we can see if the admin form is sending the questions
+    print("=" * 60)
+    print("create_passage received:")
+    print(f"  text        = {repr(text[:80])}...")
+    print(f"  level       = {repr(level)}")
+    print(f"  question1   = {repr(question1)}")
+    print(f"  option1a    = {repr(option1a)}")
+    print(f"  option1b    = {repr(option1b)}")
+    print(f"  option1c    = {repr(option1c)}")
+    print(f"  answer1     = {repr(answer1)}")
+    print(f"  question2   = {repr(question2)}")
+    print(f"  option2a    = {repr(option2a)}")
+    print(f"  option2b    = {repr(option2b)}")
+    print(f"  option2c    = {repr(option2c)}")
+    print(f"  answer2     = {repr(answer2)}")
+    print("=" * 60)
+    
     passage = Passage(
         text=text, level=level, created_by=current_user.id,
         question1=question1, option1a=option1a, option1b=option1b, option1c=option1c, answer1=answer1,
@@ -160,37 +178,35 @@ def create_passage(
     db.add(passage)
     db.commit()
     db.refresh(passage)
+    
+    # DEBUG: verify what got saved
+    print(f"After save: question1={repr(passage.question1)}, option1a={repr(passage.option1a)}")
+    
     return {"message": "Passage created", "id": passage.id}
 
 def serialize_passage(passage: Passage) -> dict:
-    """Convert flat question fields into a clean questions_data array the frontend expects."""
-    questions = []
-    if passage.question1:
-        questions.append({
-            "question": passage.question1,
-            "options": [
-                {"key": "a", "text": passage.option1a},
-                {"key": "b", "text": passage.option1b},
-                {"key": "c", "text": passage.option1c},
-            ],
-            "answer": passage.answer1,
-        })
-    if passage.question2:
-        questions.append({
-            "question": passage.question2,
-            "options": [
-                {"key": "a", "text": passage.option2a},
-                {"key": "b", "text": passage.option2b},
-                {"key": "c", "text": passage.option2c},
-            ],
-            "answer": passage.answer2,
-        })
+    """
+    Explicitly serialize a Passage ORM object to a dict that includes ALL the flat fields
+    the frontend reads (question1, option1a, option1b, option1c, answer1, question2, etc.).
+    
+    Returning SQLAlchemy ORM objects directly from FastAPI can silently drop fields
+    depending on the model's configuration, so we always return a plain dict.
+    """
     return {
         "id": passage.id,
         "text": passage.text,
         "level": passage.level,
         "created_by": passage.created_by,
-        "questions_data": questions,
+        "question1": passage.question1,
+        "option1a": passage.option1a,
+        "option1b": passage.option1b,
+        "option1c": passage.option1c,
+        "answer1": passage.answer1,
+        "question2": passage.question2,
+        "option2a": passage.option2a,
+        "option2b": passage.option2b,
+        "option2c": passage.option2c,
+        "answer2": passage.answer2,
     }
 
 @app.get("/api/passages")
@@ -202,7 +218,26 @@ def get_passages(current_user: User = Depends(get_current_user), db: Session = D
         passages = db.query(Passage).filter(Passage.created_by == doctor.id).all() if doctor else []
     else:
         passages = db.query(Passage).all()
+    
+    # DEBUG: log what we are about to return so we can see if values are actually in the DB
+    print("=" * 60)
+    print(f"get_passages returning {len(passages)} passage(s) for user {current_user.username} ({current_user.role})")
+    for p in passages:
+        print(f"  Passage #{p.id}: question1={repr(p.question1)}, option1a={repr(p.option1a)}, answer1={repr(p.answer1)}")
+    print("=" * 60)
+    
     return [serialize_passage(p) for p in passages]
+
+@app.get("/api/passages/{passage_id}/debug")
+def debug_passage(passage_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """
+    DEBUG endpoint to inspect exactly what is stored in the DB for one passage.
+    Open this in the browser (with token) to see if the question text is actually saved.
+    """
+    passage = db.query(Passage).filter(Passage.id == passage_id).first()
+    if not passage:
+        raise HTTPException(status_code=404, detail="Passage not found")
+    return serialize_passage(passage)
 
 @app.get("/api/sessions")
 def get_sessions(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
