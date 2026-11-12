@@ -85,6 +85,24 @@ export default function Dashboard() {
       const formData = new FormData()
       formData.append('text', newPassage)
       formData.append('level', newGrade)
+
+      // Send flat fields the backend expects (question1, option1a, ... answer1, question2, ...)
+      if (questions[0]) {
+        formData.append('question1', questions[0].q || '')
+        formData.append('option1a', questions[0].o1 || '')
+        formData.append('option1b', questions[0].o2 || '')
+        formData.append('option1c', questions[0].o3 || '')
+        formData.append('answer1', questions[0].ans || '')
+      }
+      if (questions[1]) {
+        formData.append('question2', questions[1].q || '')
+        formData.append('option2a', questions[1].o1 || '')
+        formData.append('option2b', questions[1].o2 || '')
+        formData.append('option2c', questions[1].o3 || '')
+        formData.append('answer2', questions[1].ans || '')
+      }
+
+      // Keep questions_data too (for future use when we upgrade the backend)
       formData.append('questions_data', JSON.stringify(questions))
 
       await axios.post('https://reading-ai-platform.onrender.com/api/passages', formData, { headers: { Authorization: `Bearer ${token}` } })
