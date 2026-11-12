@@ -67,6 +67,8 @@ class Passage(Base):
     option2b = Column(String, nullable=True)
     option2c = Column(String, nullable=True)
     answer2 = Column(String, nullable=True)
+    
+    questions_data = Column(Text)
 
 Base.metadata.create_all(bind=engine)
 

@@ -5,6 +5,7 @@ from fastapi.responses import StreamingResponse, FileResponse
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 from database import Base, engine, SessionLocal, User, ResearchSession, Passage, get_db
 from groq import Groq
 import datetime
@@ -22,8 +23,8 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
-    allow_credentials=False, 
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -38,6 +39,16 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 print("Groq Client initialized successfully!")
 
+# ---------- Auto-migration: add questions_data column if missing ----------
+try:
+    with engine.connect() as conn:
+        conn.execute(text("ALTER TABLE passages ADD COLUMN IF NOT EXISTS questions_data TEXT"))
+        conn.commit()
+    print("Migration: questions_data column ensured.")
+except Exception as e:
+    print(f"Migration note (ok if column already exists): {e}")
+
+
 def normalize_arabic(text):
     text = re.sub(r'[\u0617-\u061A\u064B-\u0652]', '', text)
     text = re.sub(r'[^\w\s]', '', text)
@@ -46,11 +57,13 @@ def normalize_arabic(text):
     text = re.sub(r'ة', 'ه', text)
     return text
 
+
 def create_access_token(data: dict):
     to_encode = data.copy()
     expire = datetime.datetime.utcnow() + datetime.timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
 
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     credentials_exception = HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
@@ -63,28 +76,30 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     if user is None: raise credentials_exception
     return user
 
+
 def upload_to_supabase(file_path, file_name):
     supabase_url = os.environ.get("SUPABASE_URL")
     supabase_key = os.environ.get("SUPABASE_KEY")
-    
+
     with open(file_path, "rb") as f:
         file_data = f.read()
-        
+
     headers = {
         "apikey": supabase_key,
         "Authorization": f"Bearer {supabase_key}",
         "Content-Type": "audio/webm"
     }
-    
+
     upload_url = f"{supabase_url}/storage/v1/object/audio-files/{file_name}"
     response = requests.post(upload_url, headers=headers, data=file_data)
-    
+
     if response.status_code == 200:
         public_url = f"{supabase_url}/storage/v1/object/public/audio-files/{file_name}"
         return public_url
     else:
         print("Supabase Upload Error:", response.text)
         return None
+
 
 @app.post("/auth/register")
 def register_user(username: str = Form(...), password: str = Form(...), role: str = Form(...), doctor_username: str = Form(None), current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -99,42 +114,45 @@ def register_user(username: str = Form(...), password: str = Form(...), role: st
     db.commit()
     return {"message": "User registered"}
 
+
 @app.post("/auth/register/bulk")
 async def register_bulk_users(file: UploadFile = File(...), current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
-    
+
     contents = await file.read()
     decoded = contents.decode('utf-8').splitlines()
     reader = csv.reader(decoded)
-    
+
     created_count = 0
     errors = []
-    
+
     for i, row in enumerate(reader):
         if i == 0 or len(row) < 3: continue
-            
+
         username, password, doctor_username = row[0].strip(), row[1].strip(), row[2].strip()
-        
+
         if db.query(User).filter(User.username == username).first():
             errors.append(f"Row {i+1}: User '{username}' already exists.")
             continue
-            
+
         doctor = db.query(User).filter(User.username == doctor_username, User.role == "doctor").first()
         if not doctor:
             errors.append(f"Row {i+1}: Doctor '{doctor_username}' not found.")
             continue
-            
+
         new_user = User(username=username, hashed_password=pwd_context.hash(password), role="student", doctor_id=doctor.id)
         db.add(new_user)
         created_count += 1
-        
+
     db.commit()
     return {"message": f"Successfully created {created_count} students.", "errors": errors}
+
 
 @app.get("/auth/doctors")
 def get_doctors(db: Session = Depends(get_db)):
     return [{"id": d.id, "username": d.username} for d in db.query(User).filter(User.role == "doctor").all()]
+
 
 @app.post("/auth/login")
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
@@ -143,60 +161,54 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
         raise HTTPException(status_code=400, detail="Incorrect username or password")
     return {"access_token": create_access_token(data={"sub": user.username, "role": user.role, "id": user.id}), "token_type": "bearer", "role": user.role, "username": user.username}
 
+
 @app.post("/api/passages")
 def create_passage(
-    text: str = Form(...), 
+    text: str = Form(...),
     level: str = Form("متوسط"),
     question1: str = Form(None), option1a: str = Form(None), option1b: str = Form(None), option1c: str = Form(None), answer1: str = Form(None),
     question2: str = Form(None), option2a: str = Form(None), option2b: str = Form(None), option2c: str = Form(None), answer2: str = Form(None),
+    questions_data: str = Form(None),
     current_user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ):
     if current_user.role not in ["doctor", "admin"]: raise HTTPException(status_code=403, detail="Doctors only")
-    
-    # DEBUG: print what we actually received so we can see if the admin form is sending the questions
+
     print("=" * 60)
     print("create_passage received:")
-    print(f"  text        = {repr(text[:80])}...")
-    print(f"  level       = {repr(level)}")
-    print(f"  question1   = {repr(question1)}")
-    print(f"  option1a    = {repr(option1a)}")
-    print(f"  option1b    = {repr(option1b)}")
-    print(f"  option1c    = {repr(option1c)}")
-    print(f"  answer1     = {repr(answer1)}")
-    print(f"  question2   = {repr(question2)}")
-    print(f"  option2a    = {repr(option2a)}")
-    print(f"  option2b    = {repr(option2b)}")
-    print(f"  option2c    = {repr(option2c)}")
-    print(f"  answer2     = {repr(answer2)}")
+    print(f"  text          = {repr(text[:80])}...")
+    print(f"  level         = {repr(level)}")
+    print(f"  question1     = {repr(question1)}")
+    print(f"  questions_data= {repr(questions_data[:200] if questions_data else None)}")
     print("=" * 60)
-    
+
     passage = Passage(
         text=text, level=level, created_by=current_user.id,
         question1=question1, option1a=option1a, option1b=option1b, option1c=option1c, answer1=answer1,
-        question2=question2, option2a=option2a, option2b=option2b, option2c=option2c, answer2=answer2
+        question2=question2, option2a=option2a, option2b=option2b, option2c=option2c, answer2=answer2,
+        questions_data=questions_data,
     )
     db.add(passage)
     db.commit()
     db.refresh(passage)
-    
-    # DEBUG: verify what got saved
-    print(f"After save: question1={repr(passage.question1)}, option1a={repr(passage.option1a)}")
-    
+
+    print(f"After save: question1={repr(passage.question1)}, questions_data={'SET' if passage.questions_data else 'NULL'}")
     return {"message": "Passage created", "id": passage.id}
 
+
 def serialize_passage(passage: Passage) -> dict:
-    """
-    Explicitly serialize a Passage ORM object to a dict that includes ALL the flat fields
-    the frontend reads (question1, option1a, option1b, option1c, answer1, question2, etc.).
-    
-    Returning SQLAlchemy ORM objects directly from FastAPI can silently drop fields
-    depending on the model's configuration, so we always return a plain dict.
-    """
+    questions_data = passage.questions_data
+    if isinstance(questions_data, str):
+        try:
+            questions_data = json.loads(questions_data)
+        except json.JSONDecodeError:
+            questions_data = None
+
     return {
         "id": passage.id,
         "text": passage.text,
         "level": passage.level,
         "created_by": passage.created_by,
+        # Flat fields (backward compat for old passages + passage #29)
         "question1": passage.question1,
         "option1a": passage.option1a,
         "option1b": passage.option1b,
@@ -207,7 +219,10 @@ def serialize_passage(passage: Passage) -> dict:
         "option2b": passage.option2b,
         "option2c": passage.option2c,
         "answer2": passage.answer2,
+        # New: full questions array (preferred by the student page)
+        "questions_data": questions_data,
     }
+
 
 @app.get("/api/passages")
 def get_passages(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -218,26 +233,23 @@ def get_passages(current_user: User = Depends(get_current_user), db: Session = D
         passages = db.query(Passage).filter(Passage.created_by == doctor.id).all() if doctor else []
     else:
         passages = db.query(Passage).all()
-    
-    # DEBUG: log what we are about to return so we can see if values are actually in the DB
+
     print("=" * 60)
     print(f"get_passages returning {len(passages)} passage(s) for user {current_user.username} ({current_user.role})")
     for p in passages:
-        print(f"  Passage #{p.id}: question1={repr(p.question1)}, option1a={repr(p.option1a)}, answer1={repr(p.answer1)}")
+        print(f"  Passage #{p.id}: questions_data={'SET' if p.questions_data else 'NULL'}, question1={repr(p.question1)}")
     print("=" * 60)
-    
+
     return [serialize_passage(p) for p in passages]
+
 
 @app.get("/api/passages/{passage_id}/debug")
 def debug_passage(passage_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """
-    DEBUG endpoint to inspect exactly what is stored in the DB for one passage.
-    Open this in the browser (with token) to see if the question text is actually saved.
-    """
     passage = db.query(Passage).filter(Passage.id == passage_id).first()
     if not passage:
         raise HTTPException(status_code=404, detail="Passage not found")
     return serialize_passage(passage)
+
 
 @app.get("/api/sessions")
 def get_sessions(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -252,22 +264,23 @@ def get_sessions(current_user: User = Depends(get_current_user), db: Session = D
         sessions_list.append(session_dict)
     return sessions_list
 
+
 @app.post("/api/sessions/upload")
 async def upload_audio(
-    audio: UploadFile = File(...), 
-    passage: str = Form(...), 
-    comprehension_score: str = Form("0/2"), 
-    duration_seconds: float = Form(30.0), # NEW: Accept real duration
-    current_user: User = Depends(get_current_user), 
+    audio: UploadFile = File(...),
+    passage: str = Form(...),
+    comprehension_score: str = Form("0/2"),
+    duration_seconds: float = Form(30.0),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     if current_user.role != "student": raise HTTPException(status_code=403, detail="Students only")
-    
+
     temp_file_name = f"audio_{datetime.datetime.now().timestamp()}.webm"
     with open(temp_file_name, "wb") as f: f.write(await audio.read())
-    
+
     audio_url = upload_to_supabase(temp_file_name, temp_file_name)
-    
+
     with open(temp_file_name, "rb") as file:
         transcription = groq_client.audio.transcriptions.create(
             file=(temp_file_name, file.read()),
@@ -275,20 +288,20 @@ async def upload_audio(
             language="ar"
         )
     raw_transcript = transcription.text.strip()
-    
+
     if os.path.exists(temp_file_name):
         os.remove(temp_file_name)
-        
+
     matcher = difflib.SequenceMatcher(None, normalize_arabic(passage).replace(" ", ""), normalize_arabic(raw_transcript).replace(" ", ""))
     accuracy = round(matcher.ratio() * 100, 2)
-    
+
     original_words = normalize_arabic(passage).split()
     spoken_words = normalize_arabic(raw_transcript).split()
     word_matcher = difflib.SequenceMatcher(None, original_words, spoken_words)
-    
+
     errors = []
     word_analysis = []
-    
+
     for tag, i1, i2, j1, j2 in word_matcher.get_opcodes():
         if tag == 'equal':
             for word in original_words[i1:i2]:
@@ -305,12 +318,17 @@ async def upload_audio(
             for word in spoken_words[j1:j2]:
                 errors.append(f"إضافة:{word}")
                 word_analysis.append({"word": word, "status": "extra", "type": "إضافة"})
-    
-    stars = 1 
-    if accuracy >= 75: stars += 1
-    if comprehension_score == "2/2": stars += 1
 
-    # NEW: Calculate scientifically accurate WPM
+    stars = 1
+    if accuracy >= 75: stars += 1
+    # NEW: star for getting ALL comprehension questions right (supports any count)
+    try:
+        parts = comprehension_score.split('/')
+        if len(parts) == 2 and int(parts[0]) == int(parts[1]) and int(parts[1]) > 0:
+            stars += 1
+    except (ValueError, IndexError):
+        pass
+
     if duration_seconds > 0:
         wpm = round((len(spoken_words) / duration_seconds) * 60, 1)
     else:
@@ -318,41 +336,43 @@ async def upload_audio(
 
     new_session = ResearchSession(
         session_id=f"SES-{datetime.datetime.now().timestamp()}", student_id=current_user.id, doctor_id=current_user.doctor_id,
-        age_range="8-10", grade="4", passage_id="PASS", passage_level="متوسط", 
-        audio_file_id=audio_url, 
-        asr_transcript=raw_transcript, 
+        age_range="8-10", grade="4", passage_id="PASS", passage_level="متوسط",
+        audio_file_id=audio_url,
+        asr_transcript=raw_transcript,
         error_tags=";".join(errors) or "لا توجد أخطاء",
         wpm=wpm, accuracy_percent=accuracy, comprehension_score=comprehension_score,
-        duration_seconds=duration_seconds, # Save real duration
-        consent_given=True, 
+        duration_seconds=duration_seconds,
+        consent_given=True,
         stars=stars
     )
     db.add(new_session)
     db.commit()
-    
+
     return {
-        "accuracy": accuracy, 
+        "accuracy": accuracy,
         "transcript": raw_transcript,
         "word_analysis": word_analysis,
         "stars": stars
     }
+
 
 @app.get("/api/sessions/export")
 def export_sessions(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     if current_user.role not in ["doctor", "admin"]: raise HTTPException(status_code=403, detail="Doctors/Admins only")
     query = db.query(ResearchSession, User.username).join(User, ResearchSession.student_id == User.id)
     if current_user.role == "doctor": query = query.filter(ResearchSession.doctor_id == current_user.id)
-    
+
     output = io.StringIO()
-    output.write('\ufeff') 
+    output.write('\ufeff')
     writer = csv.writer(output)
     writer.writerow(["Student", "Date", "Duration (s)", "WPM", "Accuracy (%)", "Comprehension", "Errors", "AI Transcript"])
-    
+
     for session, student_username in query.all():
         writer.writerow([student_username, session.session_date, session.duration_seconds, session.wpm, session.accuracy_percent, session.comprehension_score, session.error_tags, session.asr_transcript])
-    
+
     output.seek(0)
     return StreamingResponse(output, media_type="text/csv", headers={"Content-Disposition": "attachment; filename=research_data.csv"})
+
 
 @app.delete("/api/passages/{passage_id}")
 def delete_passage(passage_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -365,6 +385,7 @@ def delete_passage(passage_id: int, current_user: User = Depends(get_current_use
     db.commit()
     return {"message": "Passage deleted"}
 
+
 @app.delete("/api/sessions/{session_id}")
 def delete_session(session_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     if current_user.role not in ["doctor", "admin"]: raise HTTPException(status_code=403, detail="Doctors only")
@@ -376,6 +397,7 @@ def delete_session(session_id: str, current_user: User = Depends(get_current_use
     db.commit()
     return {"message": "Session deleted"}
 
+
 @app.get("/api/audio/{filename}")
 async def get_audio(filename: str, token: str = Query(...), db: Session = Depends(get_db)):
     try:
@@ -384,18 +406,19 @@ async def get_audio(filename: str, token: str = Query(...), db: Session = Depend
         if username is None: raise HTTPException(status_code=401, detail="Invalid token")
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
-        
+
     user = db.query(User).filter(User.username == username).first()
     if not user or user.role not in ["doctor", "admin"]:
         raise HTTPException(status_code=403, detail="Access denied")
-        
+
     if ".." in filename or "/" in filename:
         raise HTTPException(status_code=400, detail="Invalid filename")
-    
+
     file_path = filename
     if os.path.exists(file_path):
         return FileResponse(path=file_path, media_type="audio/webm")
     raise HTTPException(status_code=404, detail="Audio file not found")
+
 
 @app.post("/api/tts")
 async def text_to_speech(text: str = Form(...)):
@@ -411,26 +434,29 @@ async def text_to_speech(text: str = Form(...)):
         print("TTS Error:", e)
         raise HTTPException(status_code=500, detail="Failed to generate audio")
 
+
 @app.get("/api/users")
 def get_all_users(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     if current_user.role != "admin": raise HTTPException(status_code=403, detail="Admin only")
     return db.query(User).all()
+
 
 @app.delete("/api/users/{user_id}")
 def delete_user(user_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     if current_user.role != "admin": raise HTTPException(status_code=403, detail="Admin only")
     user = db.query(User).filter(User.id == user_id).first()
     if not user: raise HTTPException(status_code=404, detail="User not found")
-    
+
     if user.role == "student":
         db.query(ResearchSession).filter(ResearchSession.student_id == user_id).delete()
     elif user.role == "doctor":
         db.query(Passage).filter(Passage.created_by == user_id).delete()
         db.query(ResearchSession).filter(ResearchSession.doctor_id == user_id).delete()
-        
+
     db.delete(user)
     db.commit()
     return {"message": "Deleted successfully"}
+
 
 @app.put("/api/users/{user_id}/reset-password")
 def reset_password(user_id: int, new_password: str = Form(...), current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):

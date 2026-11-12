@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import axios from 'axios'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, LineChart, Line, PieChart, Pie, Cell } from 'recharts'
 
-const buildEmptyQuestions = (count: number) => {
+const buildEmptyQuestions = (count: number = 2) => {
   return Array.from({ length: count }, () => ({ q: '', o1: '', o2: '', o3: '', ans: '' }))
 }
 
@@ -12,15 +12,15 @@ export default function Dashboard() {
   const [sessions, setSessions] = useState<any[]>([])
   const [passages, setPassages] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
-  
+
   const [view, setView] = useState<'overview' | 'student' | 'passages'>('overview')
   const [selectedStudent, setSelectedStudent] = useState<string | null>(null)
   const [expandedGrade, setExpandedGrade] = useState<string | null>(null)
-  
+
   const [newPassage, setNewPassage] = useState('')
   const [newGrade, setNewGrade] = useState('الصف الأول')
-  const [questions, setQuestions] = useState<any[]>(buildEmptyQuestions(4))
-  
+  const [questions, setQuestions] = useState<any[]>(buildEmptyQuestions(2))
+
   const [showPassageForm, setShowPassageForm] = useState(false)
 
   const fetchSessions = useCallback(async () => {
@@ -67,9 +67,6 @@ export default function Dashboard() {
 
   const handleGradeChange = (grade: string) => {
     setNewGrade(grade)
-    if (grade === 'الصف الأول' || grade === 'الصف الثاني') setQuestions(buildEmptyQuestions(4))
-    else if (grade === 'الصف الثالث' || grade === 'الصف الرابع') setQuestions(buildEmptyQuestions(5))
-    else if (grade === 'الصف الخامس' || grade === 'الصف السادس') setQuestions(buildEmptyQuestions(6))
   }
 
   const handleQuestionChange = (index: number, field: string, value: string) => {
@@ -78,38 +75,53 @@ export default function Dashboard() {
     setQuestions(newQuestions)
   }
 
+  const handleAddQuestion = () => {
+    setQuestions([...questions, { q: '', o1: '', o2: '', o3: '', ans: '' }])
+  }
+
+  const handleRemoveQuestion = (index: number) => {
+    if (index < 2) return
+    const newQuestions = questions.filter((_, i) => i !== index)
+    setQuestions(newQuestions)
+  }
+
   const handleAddPassage = async (e: React.FormEvent) => {
     e.preventDefault()
     const token = localStorage.getItem('token')
     try {
+      const filledQuestions = questions.filter(q => q.q && q.q.trim() !== '')
+
+      if (filledQuestions.length < 2) {
+        alert('يرجى إدخال سؤالين على الأقل.')
+        return
+      }
+
       const formData = new FormData()
       formData.append('text', newPassage)
       formData.append('level', newGrade)
 
-      // Send flat fields the backend expects (question1, option1a, ... answer1, question2, ...)
-      if (questions[0]) {
-        formData.append('question1', questions[0].q || '')
-        formData.append('option1a', questions[0].o1 || '')
-        formData.append('option1b', questions[0].o2 || '')
-        formData.append('option1c', questions[0].o3 || '')
-        formData.append('answer1', questions[0].ans || '')
+      if (filledQuestions[0]) {
+        formData.append('question1', filledQuestions[0].q)
+        formData.append('option1a', filledQuestions[0].o1)
+        formData.append('option1b', filledQuestions[0].o2)
+        formData.append('option1c', filledQuestions[0].o3)
+        formData.append('answer1', filledQuestions[0].ans)
       }
-      if (questions[1]) {
-        formData.append('question2', questions[1].q || '')
-        formData.append('option2a', questions[1].o1 || '')
-        formData.append('option2b', questions[1].o2 || '')
-        formData.append('option2c', questions[1].o3 || '')
-        formData.append('answer2', questions[1].ans || '')
+      if (filledQuestions[1]) {
+        formData.append('question2', filledQuestions[1].q)
+        formData.append('option2a', filledQuestions[1].o1)
+        formData.append('option2b', filledQuestions[1].o2)
+        formData.append('option2c', filledQuestions[1].o3)
+        formData.append('answer2', filledQuestions[1].ans)
       }
 
-      // Keep questions_data too (for future use when we upgrade the backend)
-      formData.append('questions_data', JSON.stringify(questions))
+      formData.append('questions_data', JSON.stringify(filledQuestions))
 
       await axios.post('https://reading-ai-platform.onrender.com/api/passages', formData, { headers: { Authorization: `Bearer ${token}` } })
-      
-      setNewPassage(''); setNewGrade('الصف الأول'); setQuestions(buildEmptyQuestions(4))
+
+      setNewPassage(''); setNewGrade('الصف الأول'); setQuestions(buildEmptyQuestions(2))
       setShowPassageForm(false)
-      alert('تم إضافة النص والأسئلة بنجاح!')
+      alert(`تم إضافة النص و ${filledQuestions.length} أسئلة بنجاح!`)
       fetchPassages()
     } catch (err: any) {
       alert(err.response?.data?.detail || 'Failed to add passage')
@@ -138,7 +150,7 @@ export default function Dashboard() {
     const studentSessions = sessions.filter((s: any) => s.student_username === studentName);
     const avgAccuracy = studentSessions.length > 0 ? (studentSessions.reduce((acc: number, s: any) => acc + s.accuracy_percent, 0) / studentSessions.length).toFixed(1) : 0;
     const avgWpm = studentSessions.length > 0 ? Math.round(studentSessions.reduce((acc: number, s: any) => acc + s.wpm, 0) / studentSessions.length) : 0;
-    
+
     const reportHtml = `
       <!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><title>تقرير طالب: ${studentName}</title>
       <style>body{font-family:'Segoe UI',Tahoma,sans-serif;padding:40px;color:#333}h1{color:#7e22ce;border-bottom:2px solid #e9d5ff;padding-bottom:10px}.stats{display:flex;gap:20px;margin-bottom:20px}.stat-box{background:#f8f5ff;padding:15px;border-radius:8px;border:1px solid #e9d5ff;flex:1;text-align:center}.stat-box h3{margin:0;color:#6b21a8;font-size:14px}.stat-box p{margin:5px 0 0;font-size:24px;font-weight:bold}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{border:1px solid #ddd;padding:8px;text-align:right;font-size:12px}th{background:#f8f5ff;color:#6b21a8}</style>
@@ -155,7 +167,7 @@ export default function Dashboard() {
   const uniqueStudents = [...new Set(sessions.map((s: any) => s.student_username))]
   const filteredSessions = selectedStudent ? sessions.filter((s: any) => s.student_username === selectedStudent) : sessions
   const chartData = filteredSessions.map((s: any) => ({ name: s.student_username, accuracy: s.accuracy_percent, wpm: s.wpm }))
-  
+
   const studentProgressData = sessions
     .filter((s: any) => s.student_username === selectedStudent)
     .map((s: any) => ({ name: new Date(s.session_date).toLocaleDateString(), accuracy: s.accuracy_percent, wpm: s.wpm }))
@@ -173,7 +185,7 @@ export default function Dashboard() {
     }
   })
   const pieData = Object.entries(errorTypeCounts).map(([name, value]) => ({ name, value })).filter(d => d.value > 0)
-  const PIE_COLORS = ['#ef4444', '#f59e0b', '#3b82f6'] 
+  const PIE_COLORS = ['#ef4444', '#f59e0b', '#3b82f6']
 
   const grades = ['الصف الأول', 'الصف الثاني', 'الصف الثالث', 'الصف الرابع', 'الصف الخامس', 'الصف السادس']
 
@@ -236,7 +248,7 @@ export default function Dashboard() {
                 </ResponsiveContainer>
               </div>
             </div>
-            
+
             <div className="bg-white/80 p-4 rounded-xl shadow-sm">
               <h2 className="text-sm font-bold mb-2 text-purple-900">تحليل أنواع الأخطاء (Miscue Analysis)</h2>
               <div className="w-full h-40" dir="rtl">
@@ -367,20 +379,27 @@ export default function Dashboard() {
                   <label className="block text-xs font-bold text-purple-800 mb-1">نص القراءة</label>
                   <textarea value={newPassage} onChange={(e) => setNewPassage(e.target.value)} placeholder="اكتب النص هنا..." className="p-2 rounded-lg bg-white border border-purple-100 focus:ring-1 focus:ring-purple-400 h-20 text-xs text-gray-900 w-full" required />
                 </div>
-                
+
                 {questions.map((q, idx) => (
-                  <div key={idx} className="border-t pt-2">
-                    <h4 className="font-bold text-purple-800 text-sm mb-2">السؤال {idx + 1}</h4>
-                    <input value={q.q} onChange={(e) => handleQuestionChange(idx, 'q', e.target.value)} placeholder="نص السؤال" className="w-full p-2 mb-2 rounded-md bg-white border border-purple-100 text-xs text-gray-900" required />
+                  <div key={idx} className="border-t pt-2 relative">
+                    <div className="flex justify-between items-center mb-2">
+                      <h4 className="font-bold text-purple-800 text-sm">السؤال {idx + 1}{idx < 2 ? ' (مطلوب)' : ''}</h4>
+                      {idx >= 2 && (
+                        <button type="button" onClick={() => handleRemoveQuestion(idx)} className="text-red-500 hover:text-red-700 text-xs font-bold">🗑️ حذف السؤال</button>
+                      )}
+                    </div>
+                    <input value={q.q} onChange={(e) => handleQuestionChange(idx, 'q', e.target.value)} placeholder="نص السؤال" className="w-full p-2 mb-2 rounded-md bg-white border border-purple-100 text-xs text-gray-900" required={idx < 2} />
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                      <input value={q.o1} onChange={(e) => handleQuestionChange(idx, 'o1', e.target.value)} placeholder="الخيار 1" className="p-2 rounded-md bg-white border border-purple-100 text-xs text-gray-900" required />
-                      <input value={q.o2} onChange={(e) => handleQuestionChange(idx, 'o2', e.target.value)} placeholder="الخيار 2" className="p-2 rounded-md bg-white border border-purple-100 text-xs text-gray-900" required />
-                      <input value={q.o3} onChange={(e) => handleQuestionChange(idx, 'o3', e.target.value)} placeholder="الخيار 3" className="p-2 rounded-md bg-white border border-purple-100 text-xs text-gray-900" required />
-                      <input value={q.ans} onChange={(e) => handleQuestionChange(idx, 'ans', e.target.value)} placeholder="الإجابة الصحيحة" className="p-2 rounded-md bg-emerald-50 border border-emerald-200 text-xs text-gray-900" required />
+                      <input value={q.o1} onChange={(e) => handleQuestionChange(idx, 'o1', e.target.value)} placeholder="الخيار 1" className="p-2 rounded-md bg-white border border-purple-100 text-xs text-gray-900" required={idx < 2} />
+                      <input value={q.o2} onChange={(e) => handleQuestionChange(idx, 'o2', e.target.value)} placeholder="الخيار 2" className="p-2 rounded-md bg-white border border-purple-100 text-xs text-gray-900" required={idx < 2} />
+                      <input value={q.o3} onChange={(e) => handleQuestionChange(idx, 'o3', e.target.value)} placeholder="الخيار 3" className="p-2 rounded-md bg-white border border-purple-100 text-xs text-gray-900" required={idx < 2} />
+                      <input value={q.ans} onChange={(e) => handleQuestionChange(idx, 'ans', e.target.value)} placeholder="الإجابة الصحيحة" className="p-2 rounded-md bg-emerald-50 border border-emerald-200 text-xs text-gray-900" required={idx < 2} />
                     </div>
                   </div>
                 ))}
-                
+
+                <button type="button" onClick={handleAddQuestion} className="bg-purple-100 text-purple-700 px-4 py-2 rounded-lg font-bold w-fit text-xs hover:bg-purple-200 transition mt-2 self-start">➕ إضافة سؤال جديد</button>
+
                 <button type="submit" className="bg-purple-600 text-white px-4 py-2 rounded-lg font-bold w-fit text-xs hover:bg-purple-700 transition mt-2">حفظ النص والأسئلة</button>
               </form>
             </div>
@@ -392,8 +411,8 @@ export default function Dashboard() {
               const isExpanded = expandedGrade === grade;
               return (
                 <div key={grade} className={`border rounded-xl overflow-hidden shadow-sm transition-all ${isExpanded ? 'border-purple-400 md:col-span-3' : 'border-purple-100 bg-white'}`}>
-                  <button 
-                    onClick={() => setExpandedGrade(isExpanded ? null : grade)} 
+                  <button
+                    onClick={() => setExpandedGrade(isExpanded ? null : grade)}
                     className={`w-full flex justify-between items-center p-3 transition ${isExpanded ? 'bg-purple-100' : 'bg-purple-50 hover:bg-purple-100'}`}
                   >
                     <div className="flex items-center gap-2">
@@ -402,7 +421,7 @@ export default function Dashboard() {
                     </div>
                     <span className="text-[10px] bg-purple-200 text-purple-800 rounded-full px-2 py-0.5 font-bold">{count} نص</span>
                   </button>
-                  
+
                   {isExpanded && (
                     <div className="divide-y divide-purple-50 p-2 bg-white">
                       {count === 0 ? (

@@ -3,11 +3,13 @@
 import { useState, useRef, useEffect } from 'react'
 import axios from 'axios'
 
+type Question = { q: string, o1: string, o2: string, o3: string, ans: string }
+
 export default function StudentReadingPage() {
   const [phase, setPhase] = useState<'select' | 'reading' | 'quiz' | 'done' | 'practice'>('select')
   const [passages, setPassages] = useState([])
   const [selectedPassage, setSelectedPassage] = useState<any>(null)
-  
+
   const [isRecording, setIsRecording] = useState(false)
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null)
   const [status, setStatus] = useState('')
@@ -15,15 +17,13 @@ export default function StudentReadingPage() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
 
-  // NEW: State for accurate WPM
   const [recordingDuration, setRecordingDuration] = useState(0)
   const startTimeRef = useRef<number | null>(null)
 
-  const [ans1, setAns1] = useState('')
-  const [ans2, setAns2] = useState('')
+  const [answers, setAnswers] = useState<string[]>([])
   const [wordAnalysis, setWordAnalysis] = useState<any[]>([])
   const [earnedStars, setEarnedStars] = useState(0)
-  
+
   const [practiceQuestions, setPracticeQuestions] = useState<any[]>([])
   const [practiceAnswers, setPracticeAnswers] = useState<string[]>([])
   const [errorWords, setErrorWords] = useState<string[]>([])
@@ -36,6 +36,53 @@ export default function StudentReadingPage() {
         .catch(err => console.error(err))
     }
   }, [])
+
+  const getQuestionsArray = (passage: any): Question[] => {
+    if (!passage) return []
+
+    if (passage.questions_data) {
+      let qd: any = passage.questions_data
+      if (typeof qd === 'string') {
+        try { qd = JSON.parse(qd) } catch { qd = [] }
+      }
+      if (Array.isArray(qd) && qd.length > 0) {
+        return qd.map((item: any) => ({
+          q: item.q || item.question || '',
+          o1: item.o1 || item.option1a || item.option_a || '',
+          o2: item.o2 || item.option1b || item.option_b || '',
+          o3: item.o3 || item.option1c || item.option_c || '',
+          ans: item.ans || item.answer || item.answer1 || '',
+        })).filter(q => q.q)
+      }
+    }
+
+    const fallback: Question[] = []
+    if (passage.question1) {
+      fallback.push({
+        q: passage.question1,
+        o1: passage.option1a || '',
+        o2: passage.option1b || '',
+        o3: passage.option1c || '',
+        ans: passage.answer1 || '',
+      })
+    }
+    if (passage.question2) {
+      fallback.push({
+        q: passage.question2,
+        o1: passage.option2a || '',
+        o2: passage.option2b || '',
+        o3: passage.option2c || '',
+        ans: passage.answer2 || '',
+      })
+    }
+    return fallback
+  }
+
+  const handleAnswerChange = (idx: number, value: string) => {
+    const newAnswers = [...answers]
+    newAnswers[idx] = value
+    setAnswers(newAnswers)
+  }
 
   const startRecording = () => {
     navigator.mediaDevices.getUserMedia({ audio: true })
@@ -51,14 +98,12 @@ export default function StudentReadingPage() {
           setAudioBlob(blob)
           setStatus('تم التسجيل. اضغط "التالي" للانتقال إلى الاختبار')
           stream.getTracks().forEach(track => track.stop())
-          
-          // NEW: Calculate exact duration
+
           if (startTimeRef.current) {
             const durationInSec = (Date.now() - startTimeRef.current) / 1000
             setRecordingDuration(durationInSec)
           }
         }
-        // NEW: Record start time
         startTimeRef.current = Date.now()
         mediaRecorder.start(1000)
         setIsRecording(true)
@@ -79,17 +124,19 @@ export default function StudentReadingPage() {
     const token = localStorage.getItem('token')
     setIsSubmitting(true)
     setStatus('جارٍ الإرسال والتقييم...')
-    
+
+    const questionsArray = getQuestionsArray(selectedPassage)
     let correct = 0
-    if (ans1 === selectedPassage.answer1) correct++
-    if (ans2 === selectedPassage.answer2) correct++
-    const score = `${correct}/2`
+    questionsArray.forEach((q, idx) => {
+      if (answers[idx] === q.ans) correct++
+    })
+    const score = `${correct}/${questionsArray.length}`
 
     const formData = new FormData()
     formData.append('audio', audioBlob, 'recording.webm')
     formData.append('passage', selectedPassage.text)
     formData.append('comprehension_score', score)
-    formData.append('duration_seconds', recordingDuration.toString()) // NEW: Send real duration
+    formData.append('duration_seconds', recordingDuration.toString())
 
     try {
       const res = await axios.post('https://reading-ai-platform.onrender.com/api/sessions/upload', formData, {
@@ -98,10 +145,10 @@ export default function StudentReadingPage() {
       setStatus(`تم التقييم! الدقة: ${res.data.accuracy}%`)
       setWordAnalysis(res.data.word_analysis)
       setEarnedStars(res.data.stars)
-      
+
       const mistakes = res.data.word_analysis.filter((w: any) => w.status !== 'correct').map((w: any) => w.word)
       setErrorWords(mistakes)
-      
+
       setPhase('done')
     } catch (err) {
       setStatus('حدث خطأ أثناء الإرسال.')
@@ -114,12 +161,12 @@ export default function StudentReadingPage() {
       alert('أحسنت! ليس لديك أخطاء للتدرب عليها.')
       return
     }
-    
+
     const allWords = wordAnalysis.map((w: any) => w.word)
     const questions = errorWords.slice(0, 3).map((targetWord) => {
       const distractors = allWords.filter(w => w !== targetWord).sort(() => 0.5 - Math.random()).slice(0, 2)
       const options = [targetWord, ...distractors].sort(() => 0.5 - Math.random())
-      
+
       return {
         question: "استمع جيداً واختر الكلمة الصحيحة",
         audioWord: targetWord,
@@ -127,7 +174,7 @@ export default function StudentReadingPage() {
         answer: targetWord
       }
     })
-    
+
     setPracticeQuestions(questions)
     setPracticeAnswers([])
     setPhase('practice')
@@ -137,11 +184,11 @@ export default function StudentReadingPage() {
     try {
       const formData = new FormData()
       formData.append('text', word)
-      
+
       const res = await axios.post('https://reading-ai-platform.onrender.com/api/tts', formData, {
         responseType: 'blob'
       })
-      
+
       const audioUrl = URL.createObjectURL(res.data)
       const audio = new Audio(audioUrl)
       audio.play()
@@ -161,26 +208,27 @@ export default function StudentReadingPage() {
     setSelectedPassage(null)
     setAudioBlob(null)
     setStatus('')
-    setAns1('')
-    setAns2('')
+    setAnswers([])
     setWordAnalysis([])
     setEarnedStars(0)
     setErrorWords([])
     setPracticeQuestions([])
     setPracticeAnswers([])
-    setRecordingDuration(0) // NEW: Reset duration
+    setRecordingDuration(0)
   }
+
+  const currentQuestions: Question[] = getQuestionsArray(selectedPassage)
 
   return (
     <div className="p-10 flex flex-col items-center w-full">
       <div className="bg-white/80 backdrop-blur-xl border border-white/60 p-8 rounded-3xl shadow-xl max-w-2xl w-full">
         <h1 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-pink-600 text-center mb-8">حصة القراءة</h1>
-        
+
         {phase === 'select' && (
           <div className="flex flex-col gap-4">
             <h2 className="text-xl font-bold text-center text-gray-900">اختر النص للقراءة</h2>
             {passages.map((p: any) => (
-              <button key={p.id} onClick={() => { setSelectedPassage(p); setPhase('reading') }} className="bg-white hover:bg-gray-50 border border-purple-100 p-4 rounded-2xl text-right transition">
+              <button key={p.id} onClick={() => { setSelectedPassage(p); setAnswers([]); setPhase('reading') }} className="bg-white hover:bg-gray-50 border border-purple-100 p-4 rounded-2xl text-right transition">
                 <span className="text-xs text-purple-600 block font-bold">{p.level}</span>
                 <span className="text-gray-900 font-medium">{p.text.substring(0, 50)}...</span>
               </button>
@@ -212,22 +260,19 @@ export default function StudentReadingPage() {
           <>
             <h2 className="text-xl font-bold mb-6 text-center text-gray-900">اختبار الفهم القرائي</h2>
             <div className="flex flex-col gap-8">
-              <div>
-                <p className="font-bold mb-3 text-gray-900">1. {selectedPassage.question1}</p>
-                <div className="flex gap-4 flex-wrap">
-                  <button onClick={() => setAns1(selectedPassage.option1a)} className={`px-5 py-2 rounded-xl border font-bold ${ans1===selectedPassage.option1a ? 'bg-purple-600 text-white' : 'bg-white text-gray-900 border-purple-200'}`}>{selectedPassage.option1a}</button>
-                  <button onClick={() => setAns1(selectedPassage.option1b)} className={`px-5 py-2 rounded-xl border font-bold ${ans1===selectedPassage.option1b ? 'bg-purple-600 text-white' : 'bg-white text-gray-900 border-purple-200'}`}>{selectedPassage.option1b}</button>
-                  <button onClick={() => setAns1(selectedPassage.option1c)} className={`px-5 py-2 rounded-xl border font-bold ${ans1===selectedPassage.option1c ? 'bg-purple-600 text-white' : 'bg-white text-gray-900 border-purple-200'}`}>{selectedPassage.option1c}</button>
+              {currentQuestions.map((q, idx) => (
+                <div key={idx}>
+                  <p className="font-bold mb-3 text-gray-900">{idx + 1}. {q.q}</p>
+                  <div className="flex gap-4 flex-wrap">
+                    <button onClick={() => handleAnswerChange(idx, q.o1)} className={`px-5 py-2 rounded-xl border font-bold ${answers[idx]===q.o1 ? 'bg-purple-600 text-white' : 'bg-white text-gray-900 border-purple-200'}`}>{q.o1}</button>
+                    <button onClick={() => handleAnswerChange(idx, q.o2)} className={`px-5 py-2 rounded-xl border font-bold ${answers[idx]===q.o2 ? 'bg-purple-600 text-white' : 'bg-white text-gray-900 border-purple-200'}`}>{q.o2}</button>
+                    <button onClick={() => handleAnswerChange(idx, q.o3)} className={`px-5 py-2 rounded-xl border font-bold ${answers[idx]===q.o3 ? 'bg-purple-600 text-white' : 'bg-white text-gray-900 border-purple-200'}`}>{q.o3}</button>
+                  </div>
                 </div>
-              </div>
-              <div>
-                <p className="font-bold mb-3 text-gray-900">2. {selectedPassage.question2}</p>
-                <div className="flex gap-4 flex-wrap">
-                  <button onClick={() => setAns2(selectedPassage.option2a)} className={`px-5 py-2 rounded-xl border font-bold ${ans2===selectedPassage.option2a ? 'bg-purple-600 text-white' : 'bg-white text-gray-900 border-purple-200'}`}>{selectedPassage.option2a}</button>
-                  <button onClick={() => setAns2(selectedPassage.option2b)} className={`px-5 py-2 rounded-xl border font-bold ${ans2===selectedPassage.option2b ? 'bg-purple-600 text-white' : 'bg-white text-gray-900 border-purple-200'}`}>{selectedPassage.option2b}</button>
-                  <button onClick={() => setAns2(selectedPassage.option2c)} className={`px-5 py-2 rounded-xl border font-bold ${ans2===selectedPassage.option2c ? 'bg-purple-600 text-white' : 'bg-white text-gray-900 border-purple-200'}`}>{selectedPassage.option2c}</button>
-                </div>
-              </div>
+              ))}
+              {currentQuestions.length === 0 && (
+                <p className="text-center text-gray-500">لا توجد أسئلة لهذا النص.</p>
+              )}
               <button onClick={sendForEvaluation} disabled={isSubmitting} className="bg-gradient-to-r from-emerald-500 to-cyan-500 text-white px-8 py-3 rounded-2xl font-bold shadow-lg hover:scale-105 transition disabled:opacity-50">
                 {isSubmitting ? 'جارٍ الإرسال...' : 'إرسال الإجابات والتقييم ✅'}
               </button>
@@ -239,7 +284,7 @@ export default function StudentReadingPage() {
           <div className="text-center py-8">
             <div className="text-6xl mb-4">🎉</div>
             <h2 className="text-2xl font-bold text-gray-900 mb-4">أحسنت! لقد أكملت الحصة</h2>
-            
+
             <div className="flex justify-center gap-2 mb-6">
               {[1, 2, 3].map((i) => (
                 <span key={i} className={`text-4xl transition-all duration-500 ${i <= earnedStars ? 'opacity-100 scale-100' : 'opacity-20 scale-90'}`}>
@@ -257,13 +302,13 @@ export default function StudentReadingPage() {
                 ))}
               </div>
             </div>
-            
+
             {errorWords.length > 0 && (
               <button onClick={startPractice} className="bg-gradient-to-r from-amber-500 to-orange-500 text-white px-8 py-3 rounded-2xl font-bold shadow-lg hover:scale-105 transition mt-4">
                 🧠 تدرب على أخطائك
               </button>
             )}
-            
+
             <button onClick={handleGoHome} className="bg-slate-800 text-white px-8 py-3 rounded-2xl font-bold hover:bg-slate-700 transition mt-4">
               العودة لاختيار نص جديد 🏠
             </button>
@@ -277,21 +322,21 @@ export default function StudentReadingPage() {
               {practiceQuestions.map((q, idx) => (
                 <div key={idx} className="text-center">
                   <p className="font-bold mb-3 text-gray-900">{idx + 1}. {q.question}</p>
-                  <button 
-                    onClick={() => speakWord(q.audioWord)} 
+                  <button
+                    onClick={() => speakWord(q.audioWord)}
                     className="bg-purple-600 text-white px-6 py-3 rounded-full font-bold shadow-lg hover:scale-105 transition mb-4 animate-pulse"
                   >
                     🔊 استمع للكلمة
                   </button>
                   <div className="flex gap-4 flex-wrap justify-center">
                     {q.options.map((opt: string, i: number) => (
-                      <button 
-                        key={i} 
+                      <button
+                        key={i}
                         onClick={() => {
                           const newAnswers = [...practiceAnswers]
                           newAnswers[idx] = opt
                           setPracticeAnswers(newAnswers)
-                        }} 
+                        }}
                         className={`px-5 py-2 rounded-xl border font-bold ${practiceAnswers[idx] === opt ? 'bg-purple-600 text-white' : 'bg-white text-gray-900 border-purple-200'}`}
                       >
                         {opt}
